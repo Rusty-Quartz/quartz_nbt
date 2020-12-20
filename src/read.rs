@@ -51,7 +51,7 @@ fn read_tag_body<R: Read>(source: &mut R, id: u8) -> Result<NbtTag> {
 
             NbtTag::ByteArray(array)
         }
-        0x8 => NbtTag::StringModUtf8(read_string(source)?),
+        0x8 => NbtTag::String(read_string(source)?),
         0x9 => {
             let type_id = source.read_u8()?;
             let len = source.read_i32::<BigEndian>()? as usize;
@@ -70,7 +70,7 @@ fn read_tag_body<R: Read>(source: &mut R, id: u8) -> Result<NbtTag> {
 
             let mut list = NbtList::with_capacity(len);
             for _ in 0 .. len {
-                list.add(read_tag_body(source, type_id)?);
+                list.push(read_tag_body(source, type_id)?);
             }
 
             NbtTag::List(list)
@@ -83,7 +83,7 @@ fn read_tag_body<R: Read>(source: &mut R, id: u8) -> Result<NbtTag> {
             while tag_id != 0x0 {
                 let name = read_string(source)?;
                 let tag = read_tag_body(source, tag_id)?;
-                compound.set(name, tag);
+                compound.insert(name, tag);
                 tag_id = source.read_u8()?;
             }
 

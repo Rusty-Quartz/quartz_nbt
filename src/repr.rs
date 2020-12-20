@@ -29,26 +29,44 @@ impl From<NbtReprError<NbtStructureError>> for NbtStructureError {
     fn from(x: NbtReprError<NbtStructureError>) -> Self {
         match x {
             NbtReprError::Structure(e) => e,
-            NbtReprError::Custom(e) => e,
+            NbtReprError::Conversion(e) => e,
         }
     }
 }
 
-/// An error assocaited with the translation of a NBT representation to a concrete type. This
-/// can either be a structre error or a custom error.
+/// An error associated with the translation of a NBT representation to a concrete type. This
+/// can either be a structure error, meaning an error in the structure of the NBT tree, or a
+/// conversion error, meaning an error converting a tag into a concrete type.
+///
+/// Most of the conversion processes in this crate return a [`NbtStructureError`]
+/// when there is a type mismatch. Because of this, the redundant type `NbtReprError<NbtStructureError>`
+/// appears fairly often. To remove this redundancy, this type can be converted into a [`NbtStructureError`]
+/// via the [`flatten`](crate::NbtReprError::flatten) method or `From`/`Into` conversions.
+///
+/// [`NbtStructureError`]: crate::repr::NbtStructureError
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum NbtReprError<E> {
     /// And error associated with the NBT tree itself. See [`NbtStructureError`](crate::repr::NbtStructureError).
     Structure(NbtStructureError),
     /// A custom error defining an issue during the conversion process.
-    Custom(E),
+    Conversion(E),
 }
 
 impl<E> NbtReprError<E> {
-    /// Creates a [`Custom`](crate::repr::NbtReprError::Custom) variant of this error with
+    /// Creates a [`Conversion`](crate::repr::NbtReprError::Conversion) variant of this error with
     /// the given error.
-    pub fn custom(x: E) -> Self {
-        NbtReprError::Custom(x)
+    pub fn conversion(x: E) -> Self {
+        NbtReprError::Conversion(x)
+    }
+}
+
+impl NbtReprError<NbtStructureError> {
+    /// Converts the redundant type [`NbtReprError`]`<`[`NbtStructureError`]`>` into a [`NbtStructureError`].
+    ///
+    /// [`NbtReprError`]: crate::NbtReprError
+    /// [`NbtStructureError`]: crate::NbtStructureError
+    pub fn flatten(self) -> NbtStructureError {
+        self.into()
     }
 }
 
@@ -62,7 +80,7 @@ impl<E: Error + 'static> Error for NbtReprError<E> {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             NbtReprError::Structure(source) => Some(source),
-            NbtReprError::Custom(source) => Some(source),
+            NbtReprError::Conversion(source) => Some(source),
         }
     }
 }
@@ -80,24 +98,21 @@ impl<E> From<NbtStructureError> for NbtReprError<E> {
 ///
 /// [`NbtCompound`]: crate::tag::NbtCompound
 pub trait NbtRepr: Sized {
-    /// The error type returned if the [`from_nbt`] function fails.
+    /// The error type returned if the [`read_nbt`] function fails.
     ///
-    /// [`from_nbt`]: crate::repr::NbtRepr::from_nbt
+    /// [`read_nbt`]: crate::repr::NbtRepr::read_nbt
     type Error;
 
-    /// Creates an instance of this type from the given compound.
-    ///
-    /// The intention is that data is copied, not moved, from the compound to construct this type. If for
-    /// whatever reason this type cannot be properly constructed from the given compound, `None` should
-    /// be returned.
-    fn from_nbt(nbt: &NbtCompound) -> Result<Self, Self::Error>;
+    /// Updates the data in this type based on the given compound. The intention is that data is copied, not
+    /// moved, from the compound to update this type.
+    fn read_nbt(&mut self, nbt: &NbtCompound) -> Result<(), Self::Error>;
 
     /// Writes all necessary data to the given compound to serialize this type.
     ///
-    /// Although not enforced, the data written should allow for the type to be reconstructed via the
-    /// [`from_nbt`] function.
+    /// Although not enforced, the data written should allow for the type to be restored via the
+    /// [`read_nbt`] function.
     ///
-    /// [`from_nbt`]: crate::repr::NbtRepr::from_nbt
+    /// [`read_nbt`]: crate::repr::NbtRepr::read_nbt
     fn write_nbt(&self, nbt: &mut NbtCompound);
 
     /// Converts this type into an owned [`NbtCompound`].

@@ -5,6 +5,7 @@ authors = ["Cassy343", "maddymakesgames"]
 edition = "2018"
 
 description = "Provides support for serializing and deserializing Minecraft NBT data in binary and string form."
+repository = "https://github.com/Cassy343/quartz_nbt"
 license-file = "LICENSE.txt"
 readme = "README.md"
 
@@ -13,5 +14,5 @@ categories = ["encoding", "parser-implementations"]
 
 [dependencies]
 byteorder = "1.3.4"
-flate2 = "1.0.16"
 cesu8 = "1.1.0"
+flate2 = "1.0.16"

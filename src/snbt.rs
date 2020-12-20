@@ -1,7 +1,7 @@
 use crate::tag::{NbtCompound, NbtList, NbtTag};
 use std::{
     char,
-    convert::{AsRef, TryFrom, TryInto},
+    convert::AsRef,
     error::Error,
     fmt::{self, Debug, Display, Formatter},
     iter::Peekable,
@@ -10,6 +10,38 @@ use std::{
 };
 
 /// Parses the given string into an NBT tag compound.
+///
+/// # Examples
+///
+/// ```
+/// # use quartz_nbt::*;
+/// use quartz_nbt::snbt;
+///
+/// let mut compound = NbtCompound::new();
+/// compound.insert("short", -10i16);
+/// compound.insert("string", "fizzbuzz");
+/// compound.insert("array", vec![1i64, 1, 2, 3, 5]);
+///
+/// const SNBT: &str = "{short: -10s, string: fizzbuzz, array: [L; 1, 1, 2, 3, 5]}";
+///
+/// assert_eq!(compound, snbt::parse(SNBT).unwrap());
+/// ```
+///
+/// The parser will immediately quit when it encounters a syntax error. Displaying these errors
+/// will provide useful information about where the error occurred, what went wrong, and what
+/// was expected.
+///
+/// ```
+/// use quartz_nbt::snbt;
+///
+/// const ERRONEOUS_SNBT: &str = "{garbage:; -'bleh ]";
+/// let result = snbt::parse(ERRONEOUS_SNBT);
+/// assert!(result.is_err());
+/// assert_eq!(
+///     result.unwrap_err().to_string(),
+///     "Unexpected token at column 9 near '{garbage:;', expected value"
+/// );
+/// ```
 pub fn parse<T: AsRef<str> + ?Sized>(string_nbt: &T) -> Result<NbtCompound, ParserError> {
     let mut tokens = Lexer::new(string_nbt.as_ref());
     let open_curly = tokens.assert_next(Token::OpenCurly)?;
@@ -76,7 +108,7 @@ fn parse_list<'a>(tokens: &mut Lexer<'a>, open_square: &TokenData) -> Result<Nbt
         // a regular string in a tag list, such as in ['i', 'j', 'k'].
         Some(TokenData {
             token: Token::String(string),
-            position,
+            index,
             width,
         }) => {
             // Peek at the next token to see if it's a semicolon, which would indicate a primitive vector
@@ -96,7 +128,7 @@ fn parse_list<'a>(tokens: &mut Lexer<'a>, open_square: &TokenData) -> Result<Nbt
                         "l" | "L" => parse_prim_list::<i64>(tokens, open_square),
                         _ => Err(ParserError::unexpected_token_at(
                             tokens.raw,
-                            position,
+                            index,
                             width,
                             "'B', 'I', or 'L'",
                         )),
@@ -104,15 +136,14 @@ fn parse_list<'a>(tokens: &mut Lexer<'a>, open_square: &TokenData) -> Result<Nbt
                 }
 
                 // Parse as a tag list (token errors are delegated to this function)
-                _ => parse_tag_list(tokens, open_square, NbtTag::StringModUtf8(string))
-                    .map(Into::into),
+                _ => parse_tag_list(tokens, NbtTag::String(string)).map(Into::into),
             }
         }
 
         // Any other pattern is delegated to the general tag list parser
         td @ _ => {
             let first_element = parse_value(tokens, td)?;
-            parse_tag_list(tokens, open_square, first_element).map(Into::into)
+            parse_tag_list(tokens, first_element).map(Into::into)
         }
     }
 }
@@ -122,44 +153,70 @@ fn parse_prim_list<'a, T>(
     open_square: &TokenData,
 ) -> Result<NbtTag, ParserError>
 where
-    T: TryFrom<NbtTag>,
+    Token: Into<Result<T, Token>>,
     NbtTag: From<Vec<T>>,
 {
-    // Get the first value or return an empty primitive vector
-    let first_element = match tokens.next().transpose()? {
-        Some(TokenData {
-            token: Token::ClosedSquare,
-            ..
-        }) => return Ok(Vec::new().into()),
-        td @ _ => parse_value(tokens, td)?,
-    };
+    let mut list: Vec<T> = Vec::new();
+    // Zero is used as a niche value so the first iteration of the loop runs correctly
+    let mut comma: Option<usize> = Some(0);
 
-    // Parse the rest of the tokens as a tag list
-    let tag_list = parse_tag_list(tokens, open_square, first_element)?;
+    loop {
+        match tokens.next().transpose()? {
+            // Finish off the list
+            Some(TokenData {
+                token: Token::ClosedSquare,
+                ..
+            }) => match comma {
+                Some(0) | None => return Ok(list.into()),
+                Some(index) => return Err(ParserError::trailing_comma(tokens.raw, index)),
+            },
 
-    // Convert the tag list into a primitive vector
-    let mut list: Vec<T> = Vec::with_capacity(tag_list.as_ref().capacity());
-    for element in tag_list.into_inner() {
-        list.push(
-            element
-                .try_into()
-                .map_err(|_| ParserError::non_homogenous_list(tokens.raw, open_square.position))?,
-        );
+            // Indicates another value should be parsed
+            Some(TokenData {
+                token: Token::Comma,
+                index,
+                ..
+            }) => comma = Some(index),
+
+            // Attempt to convert the token into a value
+            Some(td @ _) => {
+                // Make sure a value was expected
+                match comma {
+                    Some(_) => {
+                        match td.into_value::<T>() {
+                            Ok(value) => list.push(value),
+                            Err(td) =>
+                                return Err(ParserError::non_homogenous_list(
+                                    tokens.raw, td.index, td.width,
+                                )),
+                        }
+
+                        comma = None;
+                    }
+
+                    None =>
+                        return Err(ParserError::unexpected_token(
+                            tokens.raw,
+                            Some(&td),
+                            Token::Comma.as_expectation(),
+                        )),
+                }
+            }
+
+            None => return Err(ParserError::unmatched_brace(tokens.raw, open_square.index)),
+        }
     }
-
-    Ok(list.into())
 }
 
 fn parse_tag_list<'a>(
     tokens: &mut Lexer<'a>,
-    open_square: &TokenData,
     first_element: NbtTag,
 ) -> Result<NbtList, ParserError>
 {
     // Construct the list and use the first element to determine the list's type
     let mut list = NbtList::new();
     let descrim = mem::discriminant(&first_element);
-    list.add(first_element);
+    list.push(first_element);
 
     loop {
         match tokens.next().transpose()? {
@@ -174,17 +231,19 @@ fn parse_tag_list<'a>(
                 token: Token::Comma,
                 ..
             }) => {
+                let next = tokens.next().transpose()?;
+                let (index, width) = match next.as_ref() {
+                    Some(&TokenData { index, width, .. }) => (index, width),
+                    _ => (0, 0),
+                };
                 let element = parse_next_value(tokens)?;
 
                 // Ensure type homogeneity
                 if mem::discriminant(&element) != descrim {
-                    return Err(ParserError::non_homogenous_list(
-                        tokens.raw,
-                        open_square.position,
-                    ));
+                    return Err(ParserError::non_homogenous_list(tokens.raw, index, width));
                 }
 
-                list.add(element);
+                list.push(element);
             }
 
             // Some invalid token
@@ -218,22 +277,21 @@ fn parse_compound_tag<'a>(
                     // First loop iteration or no comma
                     Some(0) | None => return Ok(compound),
                     // Later iteration with a trailing comma
-                    Some(position) =>
-                        return Err(ParserError::trailing_comma(tokens.raw, position)),
+                    Some(index) => return Err(ParserError::trailing_comma(tokens.raw, index)),
                 }
             }
 
             // Parse a new key-value pair
             Some(TokenData {
                 token: Token::String(key),
-                position,
+                index,
                 width,
             }) => {
                 match comma {
                     // Fir looper iteration or a comma indicated that more data is present
                     Some(_) => {
                         tokens.assert_next(Token::Colon)?;
-                        compound.set(key, parse_next_value(tokens)?);
+                        compound.insert(key, parse_next_value(tokens)?);
                         comma = None;
                     }
 
@@ -241,7 +299,7 @@ fn parse_compound_tag<'a>(
                     None =>
                         return Err(ParserError::unexpected_token_at(
                             tokens.raw,
-                            position,
+                            index,
                             width,
                             Token::Comma.as_expectation(),
                         )),
@@ -251,9 +309,9 @@ fn parse_compound_tag<'a>(
             // Denote that another key-value pair is anticipated
             Some(TokenData {
                 token: Token::Comma,
-                position,
+                index,
                 ..
-            }) => comma = Some(position),
+            }) => comma = Some(index),
 
             // Catch-all for unexpected tokens
             Some(td @ _) =>
@@ -264,11 +322,7 @@ fn parse_compound_tag<'a>(
                 )),
 
             // End of file / unmatched brace
-            None =>
-                return Err(ParserError::unmatched_brace(
-                    tokens.raw,
-                    open_curly.position,
-                )),
+            None => return Err(ParserError::unmatched_brace(tokens.raw, open_curly.index)),
         }
     }
 }
@@ -276,7 +330,7 @@ fn parse_compound_tag<'a>(
 struct Lexer<'a> {
     raw: &'a str,
     chars: Peekable<Chars<'a>>,
-    position: usize,
+    index: usize,
     raw_token_buffer: String,
     peeked: Option<Option<<Self as Iterator>::Item>>,
 }
@@ -286,7 +340,7 @@ impl<'a> Lexer<'a> {
         Lexer {
             raw,
             chars: raw.chars().peekable(),
-            position: 0,
+            index: 0,
             raw_token_buffer: String::with_capacity(16),
             peeked: None,
         }
@@ -322,8 +376,8 @@ impl<'a> Lexer<'a> {
 
     // Collects a token from the character iterator
     fn slurp_token(&mut self) -> Result<TokenData, ParserError> {
-        let start = self.position;
-        // Last non-whitespace character position
+        let start = self.index;
+        // Last non-whitespace character index
         let mut last_nws_char_pos = start;
 
         // State of the token slurper
@@ -362,18 +416,18 @@ impl<'a> Lexer<'a> {
                 State::Unquoted => match self.chars.peek() {
                     Some('{' | '}' | '[' | ']' | ',' | ':' | ';') | None => {
                         self.raw_token_buffer.truncate(
-                            self.raw_token_buffer.len() - (self.position - last_nws_char_pos) + 1,
+                            self.raw_token_buffer.len() - (self.index - last_nws_char_pos) + 1,
                         );
                         state = State::Finalized;
                         continue;
                     }
                     Some('\'' | '"') => {
-                        return Err(ParserError::unexpected_quote(self.raw, self.position));
+                        return Err(ParserError::unexpected_quote(self.raw, self.index));
                     }
                     Some(&ch @ _) => {
                         self.raw_token_buffer.push(ch);
                         if !ch.is_ascii_whitespace() {
-                            last_nws_char_pos = self.position;
+                            last_nws_char_pos = self.index;
                         }
                         self.chars.next();
                     }
@@ -409,21 +463,17 @@ impl<'a> Lexer<'a> {
                                     .map(|n| char::from_u32(n))
                                     .flatten()
                                     .ok_or(ParserError::unknown_escape_sequence(
-                                        self.raw,
-                                        self.position,
-                                        6,
+                                        self.raw, self.index, 6,
                                     ))?;
 
                                 self.raw_token_buffer.push(ch);
-                                self.position += 4;
+                                self.index += 4;
                             }
 
                             // Unknown sequence
                             Some(_) => {
                                 return Err(ParserError::unknown_escape_sequence(
-                                    self.raw,
-                                    self.position,
-                                    2,
+                                    self.raw, self.index, 2,
                                 ));
                             }
 
@@ -433,7 +483,7 @@ impl<'a> Lexer<'a> {
                             }
                         }
 
-                        self.position += 1;
+                        self.index += 1;
                     }
 
                     // Close off the string if the quote type matches
@@ -463,7 +513,7 @@ impl<'a> Lexer<'a> {
                 State::Finalized => return self.parse_token(start, quoted),
             }
 
-            self.position += 1;
+            self.index += 1;
         }
     }
 
@@ -506,7 +556,7 @@ impl<'a> Lexer<'a> {
             // Apply the type suffix if it is valid
             match value {
                 Some(value) => match last {
-                    'f' | 'F' => Ok(TokenData::new(Token::Float(value as f32), start, width)),
+                    'f' | 'F' => Ok(TokenData::new(Token::Float(value), start, width)),
                     _ => Ok(TokenData::new(Token::Double(value), start, width)),
                 },
                 _ => Err(ParserError::invalid_number(self.raw, start, width)),
@@ -527,12 +577,12 @@ impl<'a> Lexer<'a> {
             // Apply the type suffix if it is valid
             match value {
                 Some(value) => match last {
-                    'b' | 'B' => Ok(TokenData::new(Token::Byte(value as i8), start, width)),
-                    's' | 'S' => Ok(TokenData::new(Token::Short(value as i16), start, width)),
+                    'b' | 'B' => Ok(TokenData::new(Token::Byte(value), start, width)),
+                    's' | 'S' => Ok(TokenData::new(Token::Short(value), start, width)),
                     'l' | 'L' => Ok(TokenData::new(Token::Long(value), start, width)),
-                    'f' | 'F' => Ok(TokenData::new(Token::Float(value as f32), start, width)),
+                    'f' | 'F' => Ok(TokenData::new(Token::Float(value as f64), start, width)),
                     'd' | 'D' => Ok(TokenData::new(Token::Double(value as f64), start, width)),
-                    _ => Ok(TokenData::new(Token::Int(value as i32), start, width)),
+                    _ => Ok(TokenData::new(Token::Int(value), start, width)),
                 },
                 _ => Err(ParserError::invalid_number(self.raw, start, width)),
             }
@@ -547,7 +597,7 @@ impl<'a> Iterator for Lexer<'a> {
         // Manage the peeking function
         match self.peeked.take() {
             Some(item) => {
-                self.position += 1;
+                self.index += 1;
                 return item;
             }
             None => {}
@@ -556,38 +606,38 @@ impl<'a> Iterator for Lexer<'a> {
         // Skip whitespace
         while self.chars.peek()?.is_ascii_whitespace() {
             self.chars.next();
-            self.position += 1;
+            self.index += 1;
         }
 
-        // Manage single-char tokens and pass multichar tokens to a designated function
+        // Manage single-char tokens and pass multi-character tokens to a designated function
         let tk = match self.chars.peek()? {
-            '{' => Some(Ok(TokenData::new(Token::OpenCurly, self.position, 1))),
-            '}' => Some(Ok(TokenData::new(Token::ClosedCurly, self.position, 1))),
-            '[' => Some(Ok(TokenData::new(Token::OpenSquare, self.position, 1))),
-            ']' => Some(Ok(TokenData::new(Token::ClosedSquare, self.position, 1))),
-            ',' => Some(Ok(TokenData::new(Token::Comma, self.position, 1))),
-            ':' => Some(Ok(TokenData::new(Token::Colon, self.position, 1))),
-            ';' => Some(Ok(TokenData::new(Token::Semicolon, self.position, 1))),
+            '{' => Some(Ok(TokenData::new(Token::OpenCurly, self.index, 1))),
+            '}' => Some(Ok(TokenData::new(Token::ClosedCurly, self.index, 1))),
+            '[' => Some(Ok(TokenData::new(Token::OpenSquare, self.index, 1))),
+            ']' => Some(Ok(TokenData::new(Token::ClosedSquare, self.index, 1))),
+            ',' => Some(Ok(TokenData::new(Token::Comma, self.index, 1))),
+            ':' => Some(Ok(TokenData::new(Token::Colon, self.index, 1))),
+            ';' => Some(Ok(TokenData::new(Token::Semicolon, self.index, 1))),
             _ => return Some(self.slurp_token()),
         };
 
         self.chars.next();
-        self.position += 1;
+        self.index += 1;
         tk
     }
 }
 
 struct TokenData {
     token: Token,
-    position: usize,
+    index: usize,
     width: usize,
 }
 
 impl TokenData {
-    fn new(token: Token, position: usize, width: usize) -> Self {
+    fn new(token: Token, index: usize, width: usize) -> Self {
         TokenData {
             token,
-            position,
+            index,
             width,
         }
     }
@@ -595,7 +645,15 @@ impl TokenData {
     fn into_tag(self) -> Result<NbtTag, Self> {
         match self.token.into_tag() {
             Ok(tag) => Ok(tag),
-            Err(tk) => Err(Self::new(tk, self.position, self.width)),
+            Err(tk) => Err(Self::new(tk, self.index, self.width)),
+        }
+    }
+
+    fn into_value<T>(self) -> Result<T, Self>
+    where Token: Into<Result<T, Token>> {
+        match self.token.into() {
+            Ok(value) => Ok(value),
+            Err(tk) => Err(Self::new(tk, self.index, self.width)),
         }
     }
 }
@@ -609,11 +667,11 @@ enum Token {
     Colon,
     Semicolon,
     String(String),
-    Byte(i8),
-    Short(i16),
-    Int(i32),
+    Byte(i64),
+    Short(i64),
+    Int(i64),
     Long(i64),
-    Float(f32),
+    Float(f64),
     Double(f64),
 }
 
@@ -633,70 +691,119 @@ impl Token {
 
     fn into_tag(self) -> Result<NbtTag, Self> {
         match self {
-            Token::String(value) => Ok(NbtTag::StringModUtf8(value)),
-            Token::Byte(value) => Ok(NbtTag::Byte(value)),
-            Token::Short(value) => Ok(NbtTag::Short(value)),
-            Token::Int(value) => Ok(NbtTag::Int(value)),
+            Token::String(value) => Ok(NbtTag::String(value)),
+            Token::Byte(value) => Ok(NbtTag::Byte(value as i8)),
+            Token::Short(value) => Ok(NbtTag::Short(value as i16)),
+            Token::Int(value) => Ok(NbtTag::Int(value as i32)),
             Token::Long(value) => Ok(NbtTag::Long(value)),
-            Token::Float(value) => Ok(NbtTag::Float(value)),
+            Token::Float(value) => Ok(NbtTag::Float(value as f32)),
             Token::Double(value) => Ok(NbtTag::Double(value)),
             tk @ _ => Err(tk),
         }
     }
 }
 
-/// An error that occurs during the parsing process.
+impl From<Token> for Result<String, Token> {
+    fn from(tk: Token) -> Self {
+        match tk {
+            Token::String(string) => Ok(string),
+            tk @ _ => Err(tk),
+        }
+    }
+}
+
+macro_rules! opt_int_from_token {
+    ($int:ty) => {
+        impl From<Token> for Result<$int, Token> {
+            fn from(tk: Token) -> Self {
+                match tk {
+                    Token::Byte(x) => Ok(x as $int),
+                    Token::Short(x) => Ok(x as $int),
+                    Token::Int(x) => Ok(x as $int),
+                    Token::Long(x) => Ok(x as $int),
+                    tk @ _ => Err(tk),
+                }
+            }
+        }
+    };
+}
+
+opt_int_from_token!(i8);
+opt_int_from_token!(i16);
+opt_int_from_token!(i32);
+opt_int_from_token!(i64);
+
+macro_rules! opt_float_from_token {
+    ($float:ty) => {
+        impl From<Token> for Result<$float, Token> {
+            fn from(tk: Token) -> Self {
+                match tk {
+                    Token::Float(x) => Ok(x as $float),
+                    Token::Double(x) => Ok(x as $float),
+                    tk @ _ => Err(tk),
+                }
+            }
+        }
+    };
+}
+
+opt_float_from_token!(f32);
+opt_float_from_token!(f64);
+
+/// An error that occurs during the parsing process. This error contains a copy of a segment
+/// of the input where the error occurred as well as metadata about the specific error. See
+/// [`ParserErrorType`](crate::snbt::ParserErrorType) for the different error types.
 pub struct ParserError {
     segment: String,
     error: ParserErrorType,
 }
 
 impl ParserError {
-    fn unmatched_quote(input: &str, position: usize) -> Self {
+    fn unmatched_quote(input: &str, index: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, 1, 7, 7),
-            error: ParserErrorType::UnmatchedQuote { position },
+            segment: Self::segment(input, index, 1, 7, 7),
+            error: ParserErrorType::UnmatchedQuote { index },
         }
     }
 
-    fn unexpected_quote(input: &str, position: usize) -> Self {
+    fn unexpected_quote(input: &str, index: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, 1, 7, 7),
-            error: ParserErrorType::UnexpectedQuote { position },
+            segment: Self::segment(input, index, 1, 7, 7),
+            error: ParserErrorType::UnexpectedQuote { index },
         }
     }
 
-    fn unknown_escape_sequence(input: &str, position: usize, width: usize) -> Self {
+    fn unknown_escape_sequence(input: &str, index: usize, width: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, width, 0, 0),
+            segment: Self::segment(input, index, width, 0, 0),
             error: ParserErrorType::UnknownEscapeSequence,
         }
     }
 
-    fn invalid_number(input: &str, position: usize, width: usize) -> Self {
+    fn invalid_number(input: &str, index: usize, width: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, width, 0, 0),
+            segment: Self::segment(input, index, width, 0, 0),
             error: ParserErrorType::InvalidNumber,
         }
     }
 
     fn unexpected_token(input: &str, token: Option<&TokenData>, expected: &'static str) -> Self {
         match token {
-            Some(token) => Self::unexpected_token_at(input, token.position, token.width, expected),
+            Some(token) => Self::unexpected_token_at(input, token.index, token.width, expected),
             None => Self::unexpected_eos(expected),
         }
     }
 
     fn unexpected_token_at(
         input: &str,
-        position: usize,
+        index: usize,
         width: usize,
         expected: &'static str,
     ) -> Self
     {
         ParserError {
-            segment: Self::segment(input, position, width, 15, 0),
-            error: ParserErrorType::UnexpectedToken { position, expected },
+            segment: Self::segment(input, index, width, 15, 0),
+            error: ParserErrorType::UnexpectedToken { index, expected },
         }
     }
 
@@ -707,24 +814,24 @@ impl ParserError {
         }
     }
 
-    fn trailing_comma(input: &str, position: usize) -> Self {
+    fn trailing_comma(input: &str, index: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, 1, 15, 1),
-            error: ParserErrorType::TrailingComma { position },
+            segment: Self::segment(input, index, 1, 15, 1),
+            error: ParserErrorType::TrailingComma { index },
         }
     }
 
-    fn unmatched_brace(input: &str, position: usize) -> Self {
+    fn unmatched_brace(input: &str, index: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, 1, 0, 15),
-            error: ParserErrorType::UnmatchedBrace { position },
+            segment: Self::segment(input, index, 1, 0, 15),
+            error: ParserErrorType::UnmatchedBrace { index },
         }
     }
 
-    fn non_homogenous_list(input: &str, position: usize) -> Self {
+    fn non_homogenous_list(input: &str, index: usize, width: usize) -> Self {
         ParserError {
-            segment: Self::segment(input, position, 1, 0, 15),
-            error: ParserErrorType::NonHomogenousList { position },
+            segment: Self::segment(input, index, width, 15, 0),
+            error: ParserErrorType::NonHomogenousList { index },
         }
     }
 
@@ -738,40 +845,37 @@ impl ParserError {
 impl Display for ParserError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.error {
-            &ParserErrorType::UnmatchedQuote { position } => write!(
+            &ParserErrorType::UnmatchedQuote { index } => write!(
                 f,
                 "Unmatched quote: column {} near '{}'",
-                position, self.segment
+                index, self.segment
             ),
-            &ParserErrorType::UnexpectedQuote { position } => write!(
+            &ParserErrorType::UnexpectedQuote { index } => write!(
                 f,
                 "Unexpected quote: column {} near '{}'",
-                position, self.segment
+                index, self.segment
             ),
             &ParserErrorType::UnknownEscapeSequence =>
                 write!(f, "Unknown escape sequence: '{}'", self.segment),
             &ParserErrorType::InvalidNumber => write!(f, "Invalid number: {}", self.segment),
-            &ParserErrorType::UnexpectedToken { position, expected } => write!(
+            &ParserErrorType::UnexpectedToken { index, expected } => write!(
                 f,
-                "Unexpected token at column {}, expected {}: '{}'",
-                position, expected, self.segment
+                "Unexpected token at column {} near '{}', expected {}",
+                index, self.segment, expected
             ),
             &ParserErrorType::UnexpectedEOS { expected } =>
                 write!(f, "Reached end of input but expected {}", expected),
-            &ParserErrorType::TrailingComma { position } => write!(
-                f,
-                "Trailing comma at column {}: '{}'",
-                position, self.segment
-            ),
-            &ParserErrorType::UnmatchedBrace { position } => write!(
+            &ParserErrorType::TrailingComma { index } =>
+                write!(f, "Trailing comma at column {}: '{}'", index, self.segment),
+            &ParserErrorType::UnmatchedBrace { index } => write!(
                 f,
                 "Unmatched brace at column {} near '{}'",
-                position, self.segment
+                index, self.segment
             ),
-            &ParserErrorType::NonHomogenousList { position } => write!(
+            &ParserErrorType::NonHomogenousList { index } => write!(
                 f,
                 "Non-homogenous typed list at column {} near '{}'",
-                position, self.segment
+                index, self.segment
             ),
         }
     }
@@ -785,30 +889,48 @@ impl Debug for ParserError {
 
 impl Error for ParserError {}
 
+/// A specific type of parser error. This enum includes metadata about each specific error.
 #[derive(Clone, Debug)]
-enum ParserErrorType {
+pub enum ParserErrorType {
+    /// An unmatched single or double quote.
     UnmatchedQuote {
-        position: usize,
+        /// The index of the unmatched quote.
+        index: usize,
     },
+    /// An unexpected quotation. This when a quote is encountered in a non-quoted string.
     UnexpectedQuote {
-        position: usize,
+        /// The index of the unexpected quote.
+        index: usize,
     },
+    /// An unknown or invalid escape sequence.
     UnknownEscapeSequence,
+    /// An invalid number.
     InvalidNumber,
+    /// An unexpected token was encountered.
     UnexpectedToken {
-        position: usize,
+        /// The index of the token.
+        index: usize,
+        /// The expected token or sequence of tokens.
         expected: &'static str,
     },
+    /// The end of the string (EOS) was encountered before it was expected.
     UnexpectedEOS {
+        /// The expected token or sequence of tokens.
         expected: &'static str,
     },
+    /// A trailing comma was encountered in a list or compound.
     TrailingComma {
-        position: usize,
+        /// The index of the trailing comma.
+        index: usize,
     },
+    /// An unmatched curly or square bracket was encountered.
     UnmatchedBrace {
-        position: usize,
+        /// The index of the unmatched brace.
+        index: usize,
     },
+    /// A non-homogenous list was encountered.
     NonHomogenousList {
-        position: usize,
+        /// The index where the invalid list value was encountered.
+        index: usize,
     },
 }

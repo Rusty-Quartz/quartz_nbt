@@ -16,7 +16,7 @@ impl NbtTag {
             NbtTag::Float(_) => 0x5,
             NbtTag::Double(_) => 0x6,
             NbtTag::ByteArray(_) => 0x7,
-            NbtTag::StringModUtf8(_) => 0x8,
+            NbtTag::String(_) => 0x8,
             NbtTag::List(_) => 0x9,
             NbtTag::Compound(_) => 0xA,
             NbtTag::IntArray(_) => 0xB,
@@ -103,7 +103,7 @@ fn write_tag_body<W: Write>(writer: &mut W, tag: &NbtTag) -> Result<()> {
 
             Ok(())
         }
-        NbtTag::StringModUtf8(value) => write_string(writer, value),
+        NbtTag::String(value) => write_string(writer, value),
         NbtTag::List(value) => {
             if value.is_empty() {
                 // Five 0's indicates an empty list

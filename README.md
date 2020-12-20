@@ -2,7 +2,7 @@
 
 Provides support for encoding and decoding Minecraft's NBT format. This crate supports both
 zlib and gz compression, and also provides tools for converting NBT data to stringified NBT
-(SNBT) data and vice versa.
+(SNBT) and vice versa.
 
 # Usage
 
