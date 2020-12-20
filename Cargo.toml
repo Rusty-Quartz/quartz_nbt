@@ -1,0 +1,17 @@
+[package]
+name = "quartz_nbt"
+version = "0.1.0"
+authors = ["Cassy343", "maddymakesgames"]
+edition = "2018"
+
+description = "Provides support for serializing and deserializing Minecraft NBT data in binary and string form."
+license-file = "LICENSE.txt"
+readme = "README.md"
+
+keywords = ["nbt", "minecraft", "data", "encode"]
+categories = ["encoding", "parser-implementations"]
+
+[dependencies]
+byteorder = "1.3.4"
+flate2 = "1.0.16"
+cesu8 = "1.1.0"
