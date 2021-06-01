@@ -1,6 +1,5 @@
 #![deny(rust_2018_idioms)]
 #![warn(missing_debug_implementations, missing_docs)]
-#![feature(or_patterns)]
 
 /*!
 Provides support for encoding and decoding Minecraft's NBT format. This crate supports both
