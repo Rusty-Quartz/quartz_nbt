@@ -6,7 +6,7 @@ edition = "2018"
 
 description = "Provides support for serializing and deserializing Minecraft NBT data in binary and string form."
 repository = "https://github.com/Rusty-Quartz/quartz_nbt"
-license = "MIT License"
+license = "MIT"
 readme = "README.md"
 
 keywords = ["nbt", "minecraft", "data", "encode"]
