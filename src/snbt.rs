@@ -58,8 +58,7 @@ fn parse_next_value<'a>(tokens: &mut Lexer<'a>) -> Result<NbtTag, ParserError> {
 fn parse_value<'a>(
     tokens: &mut Lexer<'a>,
     token: Option<TokenData>,
-) -> Result<NbtTag, ParserError>
-{
+) -> Result<NbtTag, ParserError> {
     match token {
         // Open curly brace indicates a compound tag is present
         Some(
@@ -211,8 +210,7 @@ where
 fn parse_tag_list<'a>(
     tokens: &mut Lexer<'a>,
     first_element: NbtTag,
-) -> Result<NbtList, ParserError>
-{
+) -> Result<NbtList, ParserError> {
     // Construct the list and use the first element to determine the list's type
     let mut list = NbtList::new();
     let descrim = mem::discriminant(&first_element);
@@ -231,9 +229,8 @@ fn parse_tag_list<'a>(
                 token: Token::Comma,
                 ..
             }) => {
-                let next = tokens.next().transpose()?;
-                let (index, width) = match next.as_ref() {
-                    Some(&TokenData { index, width, .. }) => (index, width),
+                let (index, width) = match tokens.peek() {
+                    Some(&Ok(TokenData { index, width, .. })) => (index, width),
                     _ => (0, 0),
                 };
                 let element = parse_next_value(tokens)?;
@@ -260,8 +257,7 @@ fn parse_tag_list<'a>(
 fn parse_compound_tag<'a>(
     tokens: &mut Lexer<'a>,
     open_curly: &TokenData,
-) -> Result<NbtCompound, ParserError>
-{
+) -> Result<NbtCompound, ParserError> {
     let mut compound = NbtCompound::new();
     // Zero is used as a niche value so the first iteration of the loop runs correctly
     let mut comma: Option<usize> = Some(0);
@@ -627,6 +623,7 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
+#[derive(Debug)]
 struct TokenData {
     token: Token,
     index: usize,
@@ -658,6 +655,7 @@ impl TokenData {
     }
 }
 
+#[derive(Debug)]
 enum Token {
     OpenCurly,
     ClosedCurly,
@@ -799,8 +797,7 @@ impl ParserError {
         index: usize,
         width: usize,
         expected: &'static str,
-    ) -> Self
-    {
+    ) -> Self {
         ParserError {
             segment: Self::segment(input, index, width, 15, 0),
             error: ParserErrorType::UnexpectedToken { index, expected },

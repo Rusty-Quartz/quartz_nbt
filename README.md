@@ -9,6 +9,6 @@ zlib and gz compression, and also provides tools for converting NBT data to stri
 Use the most recent version of this crate when adding it to your dependencies as shown below.
 ```toml
 [dependencies]
-quartz_nbt = "0.1.0"
+quartz_nbt = "0.1.2"
 ```
 View the documentation [here](https://docs.rs/quartz_nbt) for examples.

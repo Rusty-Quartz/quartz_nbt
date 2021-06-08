@@ -516,8 +516,7 @@ impl NbtList {
     pub fn get<'a, T: TryFrom<&'a NbtTag>>(
         &'a self,
         index: usize,
-    ) -> Result<T, NbtReprError<T::Error>>
-    {
+    ) -> Result<T, NbtReprError<T::Error>> {
         T::try_from(self.0.get(index).ok_or(NbtStructureError::InvalidIndex)?)
             .map_err(NbtReprError::conversion)
     }
@@ -545,8 +544,7 @@ impl NbtList {
     pub fn get_mut<'a, T: TryFrom<&'a mut NbtTag>>(
         &'a mut self,
         index: usize,
-    ) -> Result<T, NbtReprError<T::Error>>
-    {
+    ) -> Result<T, NbtReprError<T::Error>> {
         T::try_from(
             self.0
                 .get_mut(index)
