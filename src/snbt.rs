@@ -560,7 +560,7 @@ impl<'a> Lexer<'a> {
         } else {
             // Parse with highest precision ignoring the type suffix
             let value: Option<i64> = match last {
-                'b' | 'B' | 's' | 'S' | 'l' | 'L' =>
+                'b' | 'B' | 's' | 'S' | 'l' | 'L' | 'f' | 'F' | 'd' | 'D' =>
                     token_string[.. token_string.len() - 1].parse().ok(),
                 _ =>
                     if last.is_numeric() {
