@@ -3,7 +3,7 @@ mod ser;
 mod util;
 
 pub use de::Deserializer;
-pub use ser::Serializer;
+pub use ser::{Serializer};
 
 use crate::io::{Flavor, NbtIoError};
 use flate2::{
@@ -12,7 +12,7 @@ use flate2::{
     Compression,
 };
 use serde::{Deserialize, Serialize};
-use std::io::{Cursor, Read, Write};
+use std::{io::{Cursor, Read, Write}, marker::PhantomData};
 
 /// Serializes the given value as binary NBT data, returning the resulting Vec. The value must
 /// be a struct or non-unit enum variant, else the serializer will return with an error.
@@ -86,4 +86,72 @@ fn deserialize_from_raw<'de, R: Read, T: Deserialize<'de>>(
 ) -> Result<(T, String), NbtIoError> {
     let (de, root_name) = Deserializer::new(reader)?;
     Ok((T::deserialize(de)?, root_name))
+}
+
+pub(crate) const ARRAY_NEWTYPE_NAME_NICHE: &str = "__quartz_nbt_array";
+
+/// A transparent wrapper around sequential types to allow the NBT serializer to automatically
+/// select an appropriate array type, favoring specialized array types like [`IntArray`] and
+/// [`ByteArray`]. Currently this type can only wrap vectors, however tuples may be supported
+/// in the future.
+///
+/// [`IntArray`]: crate::NbtTag::IntArray
+/// [`ByteArray`]: crate::NbtTag::ByteArray
+// TODO: consider supporting homogenous tuples
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct Array<T>(pub(crate) T);
+
+impl<T> Array<T> {
+    /// Returns the inner value wrapped by this type.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T: Serialize> Serialize for Array<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer
+    {
+        serializer.serialize_newtype_struct(ARRAY_NEWTYPE_NAME_NICHE, &self.0)
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Array<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>
+    {
+        struct Visitor<T>(PhantomData<T>);
+
+        impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Visitor<T> {
+            type Value = Array<T>;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "A newtype struct type")
+            }
+
+            fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                Ok(Array(Deserialize::deserialize(deserializer)?))
+            }
+        }
+
+        deserializer.deserialize_newtype_struct(ARRAY_NEWTYPE_NAME_NICHE, Visitor(PhantomData))
+    }
+}
+
+impl<T> From<Vec<T>> for Array<Vec<T>> {
+    fn from(value: Vec<T>) -> Self {
+        Array(value)
+    }
+}
+
+impl<T> From<Array<Vec<T>>> for Vec<T> {
+    fn from(array: Array<Vec<T>>) -> Self {
+        array.0
+    }
 }

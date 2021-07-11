@@ -843,7 +843,7 @@ impl NbtCompound {
     /// let mut compound = NbtCompound::new();
     /// compound.insert("test", 1.0f64);
     ///
-    /// assert!(matches!(compound.get::<_, f64>("test"), Ok(1.0f64)));
+    /// assert!((compound.get::<_, f64>("test").unwrap() - 1.0f64).abs() < 1e-5);
     /// assert!(compound.get::<_, i32>("test").is_err()); // Type mismatch
     /// assert!(compound.get::<_, f64>("foo").is_err()); // Missing tag
     /// ```
@@ -873,7 +873,7 @@ impl NbtCompound {
     ///
     /// *compound.get_mut::<_, &mut f64>("test").unwrap() *= 2.0;
     ///
-    /// assert!(matches!(compound.get::<_, f64>("test"), Ok(2.0f64)));
+    /// assert!((compound.get::<_, f64>("test").unwrap() - 2.0f64).abs() < 1e-5);
     /// assert!(compound.get::<_, i32>("test").is_err()); // Type mismatch
     /// assert!(compound.get::<_, f64>("foo").is_err()); // Missing tag
     /// ```
@@ -919,7 +919,7 @@ impl NbtCompound {
     /// let mut compound = NbtCompound::new();
     /// compound.insert("test", 1.0f64);
     ///
-    /// assert!(matches!(compound.get::<_, f64>("test"), Ok(1.0f64)));
+    /// assert!((compound.get::<_, f64>("test").unwrap() - 1.0f64).abs() < 1e-5);
     /// ```
     pub fn insert<K: Into<String>, T: Into<NbtTag>>(&mut self, name: K, value: T) {
         self.0.insert(name.into(), value.into());
@@ -973,6 +973,7 @@ mod serde_impl {
         Serialize,
         Serializer,
     };
+    use crate::serde::Array;
 
     impl Serialize for NbtTag {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -984,13 +985,12 @@ mod serde_impl {
                 &NbtTag::Long(value) => serializer.serialize_i64(value),
                 &NbtTag::Float(value) => serializer.serialize_f32(value),
                 &NbtTag::Double(value) => serializer.serialize_f64(value),
-                NbtTag::ByteArray(bytes) =>
-                    serializer.serialize_bytes(raw::cast_bytes_to_unsigned(bytes.as_slice())),
+                NbtTag::ByteArray(bytes) => Array(raw::cast_bytes_to_unsigned(bytes.as_slice())).serialize(serializer),
                 NbtTag::String(value) => serializer.serialize_str(value),
                 NbtTag::List(list) => list.serialize(serializer),
                 NbtTag::Compound(compound) => compound.serialize(serializer),
-                NbtTag::IntArray(array) => array.serialize(serializer),
-                NbtTag::LongArray(array) => array.serialize(serializer),
+                NbtTag::IntArray(array) => Array(array).serialize(serializer),
+                NbtTag::LongArray(array) => Array(array).serialize(serializer),
             }
         }
     }

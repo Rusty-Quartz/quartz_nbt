@@ -1,7 +1,6 @@
 use crate::NbtTag;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
-    borrow::Cow,
     io::{Error, ErrorKind, Read, Result, Write},
     mem::ManuallyDrop,
     slice,
@@ -26,6 +25,7 @@ pub const fn id_for_tag(tag: Option<&NbtTag>) -> u8 {
     }
 }
 
+#[cfg(feature = "serde")]
 #[inline]
 pub fn read_bool<R: Read>(reader: &mut R) -> Result<bool> {
     Ok(read_u8(reader)? != 0)
@@ -88,10 +88,11 @@ pub fn read_string<R: Read>(reader: &mut R) -> Result<String> {
     Ok(java_decoded.into_owned())
 }
 
+#[cfg(feature = "serde")]
 pub fn read_string_into<'a, R: Read>(
     reader: &mut R,
     dest: &'a mut Vec<u8>,
-) -> Result<Cow<'a, str>> {
+) -> Result<std::borrow::Cow<'a, str>> {
     let len = read_u16(reader)? as usize;
     dest.resize(len, 0);
     reader.read_exact(dest)?;
@@ -105,6 +106,7 @@ pub fn read_string_into<'a, R: Read>(
     }
 }
 
+#[cfg(feature = "serde")]
 #[inline]
 pub fn write_bool<W: Write>(writer: &mut W, value: bool) -> Result<()> {
     write_u8(writer, if value { 1 } else { 0 })

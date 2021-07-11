@@ -64,6 +64,7 @@ fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> 
         0x6 => NbtTag::Double(raw::read_f64(reader)?),
         0x7 => {
             let len = raw::read_i32(reader)? as usize;
+            // TODO: consider using some unsafe to avoid initialization
             let mut array = vec![0u8; len];
 
             reader.read_exact(&mut array)?;
@@ -107,20 +108,20 @@ fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> 
         }
         0xB => {
             let len = raw::read_i32(reader)? as usize;
-            let mut array = vec![0_i32; len];
+            let mut array = Vec::with_capacity(len);
 
-            for i in 0 .. len {
-                array[i] = raw::read_i32(reader)?;
+            for _ in 0 .. len {
+                array.push(raw::read_i32(reader)?);
             }
 
             NbtTag::IntArray(array)
         }
         0xC => {
             let len = raw::read_i32(reader)? as usize;
-            let mut array = vec![0_i64; len];
+            let mut array = Vec::with_capacity(len);
 
-            for i in 0 .. len {
-                array[i] = raw::read_i64(reader)?;
+            for _ in 0 .. len {
+                array.push(raw::read_i64(reader)?);
             }
 
             NbtTag::LongArray(array)

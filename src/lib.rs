@@ -34,7 +34,7 @@ assert!(compound.get::<_, &NbtTag>("list").is_ok());
 
 ```
 # use quartz_nbt::*;
-use quartz_nbt::{read::read_nbt_uncompressed, write::write_nbt_uncompressed};
+use quartz_nbt::io::{self, Flavor};
 use std::io::Cursor;
 
 let mut compound = NbtCompound::new();
@@ -42,9 +42,9 @@ compound.insert("foo", 123);
 compound.insert("bar", -3.6f32);
 
 let mut binary: Vec<u8> = Vec::new();
-write_nbt_uncompressed(&mut binary, "root-tag", &compound);
+io::write_nbt(&mut binary, Some("root-tag"), &compound, Flavor::Uncompressed);
 
-let read_compound = read_nbt_uncompressed(&mut Cursor::new(binary)).unwrap();
+let read_compound = io::read_nbt(&mut Cursor::new(binary), Flavor::Uncompressed).unwrap();
 assert_eq!(read_compound.1, "root-tag"); // The root tag's name is generally unused
 assert_eq!(read_compound.0, compound);
 ```

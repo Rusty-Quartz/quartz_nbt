@@ -1,4 +1,3 @@
-use super::util::{DefaultDeserializer, Serde};
 use crate::{io::NbtIoError, raw};
 use serde::{
     de::{
@@ -17,34 +16,39 @@ use serde::{
 use std::{borrow::Cow, io::Read};
 
 /// The deserializer type for reading binary NBT data.
-pub type Deserializer<'a, R> = Serde<DeserializerImpl<'a, R>>;
+pub struct Deserializer<'a, R> {
+    reader: &'a mut R,
+}
 
 impl<'a, R: Read> Deserializer<'a, R> {
+    /// Attempts to construct a new deserializer with the given reader. If the data in the reader
+    /// does not start with a valid compound tag, an error is returned. Otherwise, the root name
+    /// is returned along with the deserializer.
     pub fn new(reader: &'a mut R) -> Result<(Self, String), NbtIoError> {
         if raw::read_u8(reader)? != 0xA {
             return Err(NbtIoError::MissingRootTag);
         }
 
         let root_name = raw::read_string(reader)?;
-        Ok((DeserializerImpl::new(reader).into_deserializer(), root_name))
+        Ok((Deserializer {
+            reader
+        }, root_name))
     }
 }
 
-pub struct DeserializerImpl<'a, R> {
-    reader: &'a mut R,
-}
-
-impl<'a, R: Read> DeserializerImpl<'a, R> {
-    fn new(reader: &'a mut R) -> Self {
-        DeserializerImpl { reader }
-    }
-}
-
-impl<'de: 'a, 'a, R: Read> DefaultDeserializer<'de> for DeserializerImpl<'a, R> {
+impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for Deserializer<'a, R> {
     type Error = NbtIoError;
 
-    fn unimplemented(self, _ty: &'static str) -> Self::Error {
-        NbtIoError::MissingRootTag
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+            V: Visitor<'de> {
+        self.deserialize_map(visitor)
+    }
+
+    forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+        bytes byte_buf option unit unit_struct newtype_struct seq tuple
+        tuple_struct identifier ignored_any
     }
 
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -106,6 +110,13 @@ where
             macro_rules! drive_visitor {
                 ($($id:literal)*) => {
                     match id {
+                        0x0 => {
+                            if len == 0 {
+                                visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, 0x0>::new(reader), len))
+                            } else {
+                                Err(NbtIoError::InvalidTagId(0))
+                            }
+                        }
                         $( $id => visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, $id>::new(reader), len)), )*
                         _ => Err(NbtIoError::InvalidTagId(id))
                     }
@@ -142,18 +153,10 @@ impl<'a, R: Read, const TAG_ID: u8> DeserializeTag<'a, R, TAG_ID> {
     }
 }
 
-impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> DefaultDeserializer<'de>
+impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
     for &'b mut DeserializeTag<'a, R, TAG_ID>
 {
     type Error = NbtIoError;
-
-    forward_to_deserialize_any! {
-        u16 u32 u64 i128 u128
-    }
-
-    fn unimplemented(self, ty: &'static str) -> Self::Error {
-        NbtIoError::UnsupportedType(ty)
-    }
 
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: serde::de::Visitor<'de> {
@@ -179,6 +182,13 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> DefaultDeserializer<'de>
                 macro_rules! drive_visitor {
                     ($($id:literal)*) => {
                         match id {
+                            0x0 => {
+                                if len == 0 {
+                                    visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, 0x0>::new(self.reader), len))
+                                } else {
+                                    Err(NbtIoError::InvalidTagId(0))
+                                }
+                            }
                             $( $id => visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, $id>::new(self.reader), len)), )*
                             _ => Err(NbtIoError::InvalidTagId(id))
                         }
@@ -204,6 +214,10 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> DefaultDeserializer<'de>
             }
             _ => unreachable!(),
         }
+    }
+
+    forward_to_deserialize_any! {
+        i128 u16 u32 u64 u128 char
     }
 
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -326,7 +340,7 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> DefaultDeserializer<'de>
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
-        visitor.visit_some(self.into_deserializer())
+        visitor.visit_some(self)
     }
 
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -353,7 +367,7 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> DefaultDeserializer<'de>
     where
         V: Visitor<'de>,
     {
-        visitor.visit_newtype_struct(self.into_deserializer())
+        visitor.visit_newtype_struct(self)
     }
 
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -406,6 +420,18 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> DefaultDeserializer<'de>
     {
         match TAG_ID {
             // Unit variant
+            0x1 => visitor.visit_enum(
+                variants
+                    .get(raw::read_i8(self.reader)? as usize)
+                    .ok_or(NbtIoError::InvalidEnumVariant)?
+                    .into_deserializer(),
+            ),
+            0x2 => visitor.visit_enum(
+                variants
+                    .get(raw::read_i16(self.reader)? as usize)
+                    .ok_or(NbtIoError::InvalidEnumVariant)?
+                    .into_deserializer(),
+            ),
             0x3 => visitor.visit_enum(
                 variants
                     .get(raw::read_i32(self.reader)? as usize)
@@ -492,7 +518,7 @@ impl<'de, 'a, R: Read, const TAG_ID: u8> VariantAccess<'de> for DeserializeVaria
 
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
     where T: DeserializeSeed<'de> {
-        seed.deserialize(DeserializeTag::<_, TAG_ID>::new(self.reader).into_deserializer())
+        seed.deserialize(&mut DeserializeTag::<_, TAG_ID>::new(self.reader))
     }
 
     fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
@@ -535,19 +561,23 @@ impl<'de, 'a, R: Read, const TAG_ID: u8> SeqAccess<'de> for DeserializeSeq<'a, R
 
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where T: de::DeserializeSeed<'de> {
-        if self.remaining == 0 {
+        if TAG_ID == 0 || self.remaining == 0 {
             return Ok(None);
         }
 
         self.remaining -= 1;
 
-        seed.deserialize((&mut self.inner).into_deserializer())
+        seed.deserialize(&mut self.inner)
             .map(Some)
     }
 
     #[inline]
     fn size_hint(&self) -> Option<usize> {
-        Some(self.remaining)
+        if TAG_ID == 0 {
+            Some(0)
+        } else {
+            Some(self.remaining)
+        }
     }
 }
 
@@ -572,7 +602,7 @@ impl<'a, R: Read> DeserializeMap<'a, R> {
         macro_rules! drive_visitor {
             ($($id:literal)*) => {
                 match tag_id {
-                    $( $id => seed.deserialize(DeserializeTag::<_, $id>::new(self.reader).into_deserializer()), )*
+                    $( $id => seed.deserialize(&mut DeserializeTag::<_, $id>::new(self.reader)), )*
                     _ => Err(NbtIoError::InvalidTagId(tag_id))
                 }
             };
@@ -593,8 +623,9 @@ impl<'de, 'a, R: Read> MapAccess<'de> for DeserializeMap<'a, R> {
             return Ok(None);
         }
 
-        seed.deserialize(DeserializeKey::new(self.reader).into_deserializer())
-            .map(Some)
+        let mut buf = Vec::new();
+        let de: CowStrDeserializer<'_, Self::Error> = raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
+        seed.deserialize(de).map(Some)
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
@@ -617,34 +648,9 @@ impl<'de, 'a, R: Read> MapAccess<'de> for DeserializeMap<'a, R> {
             return Ok(None);
         }
 
-        let key = kseed.deserialize(DeserializeKey::new(self.reader).into_deserializer())?;
+        let mut buf = Vec::new();
+        let de: CowStrDeserializer<'_, Self::Error> = raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
+        let key = kseed.deserialize(de)?;
         Ok(Some((key, self.drive_value_visitor(tag_id, vseed)?)))
-    }
-}
-
-struct DeserializeKey<'a, R> {
-    reader: &'a mut R,
-}
-
-impl<'a, R: Read> DeserializeKey<'a, R> {
-    fn new(reader: &'a mut R) -> Self {
-        DeserializeKey { reader }
-    }
-}
-
-impl<'de, 'a, R: Read> DefaultDeserializer<'de> for DeserializeKey<'a, R> {
-    type Error = NbtIoError;
-
-    forward_to_deserialize_any! {
-        str string
-    }
-
-    fn unimplemented(self, _ty: &'static str) -> Self::Error {
-        NbtIoError::InvalidKey
-    }
-
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: serde::de::Visitor<'de> {
-        visitor.visit_string(raw::read_string(self.reader)?)
     }
 }

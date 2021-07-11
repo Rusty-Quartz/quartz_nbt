@@ -512,18 +512,20 @@ impl<'a> Lexer<'a> {
                             }
 
                             // Manage brace counts
-                            match ch {
-                                '{' => curly_count += 1,
-                                '}' =>
-                                    if curly_count > 0 {
-                                        curly_count -= 1;
-                                    },
-                                '[' => square_count += 1,
-                                ']' =>
-                                    if square_count > 0 {
-                                        square_count -= 1;
-                                    },
-                                _ => {}
+                            if (quotes & 0b11) == 0 {
+                                match ch {
+                                    '{' => curly_count += 1,
+                                    '}' =>
+                                        if curly_count > 0 {
+                                            curly_count -= 1;
+                                        },
+                                    '[' => square_count += 1,
+                                    ']' =>
+                                        if square_count > 0 {
+                                            square_count -= 1;
+                                        },
+                                    _ => {}
+                                }
                             }
 
                             // Ensure that we don't include trailing whitespace in an unquoted token
@@ -646,11 +648,12 @@ impl<'a> Lexer<'a> {
             },
         }
 
-        self.parse_token(
+        let ret = self.parse_token(
             start,
             char_width,
             matches!(state, State::InSingleQuotes | State::InDoubleQuotes),
-        )
+        )?;
+        Ok(ret)
     }
 
     // Parses an isolated token
