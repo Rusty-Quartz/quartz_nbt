@@ -25,7 +25,7 @@ compound.insert("list", list);
 
 *compound.get_mut::<_, &mut i32>("foo").unwrap() += 1;
 
-assert_eq!(compound.get::<_, i32>("foo"), Ok(124));
+assert!(matches!(compound.get::<_, i32>("foo"), Ok(124)));
 assert!(compound.get::<_, f64>("bar").is_err());
 assert!(compound.get::<_, &NbtTag>("list").is_ok());
 ```
@@ -68,8 +68,8 @@ use std::convert::TryFrom;
 let tag1: NbtTag = vec![1i8, 2, 3].into();
 let tag2: NbtTag = "abcde".into();
 
-assert_eq!(Vec::<i8>::try_from(tag1), Ok(vec![1i8, 2, 3]));
-assert_eq!(i16::try_from(tag2), Err(NbtStructureError::TypeMismatch));
+assert_eq!(Vec::<i8>::try_from(tag1).unwrap(), vec![1i8, 2, 3]);
+assert!(i16::try_from(tag2).is_err()); // Type mismatch
 ```
 
 ```
@@ -78,14 +78,8 @@ let mut compound = NbtCompound::new();
 compound.insert("foo", 123);
 compound.insert("bar", -3.6f32);
 
-assert_eq!(
-    compound.get::<_, i32>("fooz"),
-    Err(NbtReprError::Structure(NbtStructureError::MissingTag))
-);
-assert_eq!(
-    compound.get::<_, i32>("bar"),
-    Err(NbtReprError::Conversion(NbtStructureError::TypeMismatch))
-);
+assert!(compound.get::<_, i32>("fooz").is_err()); // Missing tag
+assert!(compound.get::<_, i32>("bar").is_err()); // Type mismatch
 ```
 
 # Collection Types and Iteration
@@ -113,7 +107,9 @@ compound.get_mut::<_, &mut [i32]>("list")
     .iter_mut()
     .for_each(|x| *x /= 10);
 
-assert_eq!(compound.get::<_, &[i32]>("list"), Ok([1i32, 2, 3].as_ref()));
+let list = compound.get::<_, &[i32]>("list");
+assert!(list.is_ok());
+assert_eq!(list.unwrap(), [1i32, 2, 3].as_ref());
 ```
 
 Utility methods are provided for NBT lists to iterate over unpacked values. See
@@ -129,10 +125,10 @@ list.iter_mut_map::<&mut String>()
     .for_each(|s| s.unwrap().push('!'));
 
 let mut iter = list.iter_map::<&str>();
-assert_eq!(iter.next(), Some(Ok("abc!")));
-assert_eq!(iter.next(), Some(Ok("ijk!")));
-assert_eq!(iter.next(), Some(Ok("xyz!")));
-assert_eq!(iter.next(), None);
+assert!(matches!(iter.next(), Some(Ok("abc!"))));
+assert!(matches!(iter.next(), Some(Ok("ijk!"))));
+assert!(matches!(iter.next(), Some(Ok("xyz!"))));
+assert!(matches!(iter.next(), None));
 ```
 
 NBT lists can be created by cloning data from an iterator (or something which can be
@@ -194,9 +190,7 @@ struct Example {
 }
 
 impl NbtRepr for Example {
-    type Error = NbtStructureError;
-
-    fn read_nbt(&mut self, nbt: &NbtCompound) -> Result<(), Self::Error> {
+    fn read_nbt(&mut self, nbt: &NbtCompound) -> Result<(), NbtReprError> {
         self.name = nbt.get::<_, &str>("name")?.to_owned();
         self.value = nbt.get("value")?;
         Ok(())
@@ -237,11 +231,21 @@ a derive macro for this trait as well as to more thoroughly integrate its use in
 [`NbtTag`]: crate::NbtTag
 */
 
+/// Provides efficient serializer and deserializer implementations for arbitrary NBT tag trees. The
+/// functions in this module should be used for serializing and deserializing [`NbtCompound`]s
+/// over the utilities provided by serde.
+///
+/// [`NbtCompound`]: crate::NbtCompound
+pub mod io;
+mod raw;
 mod repr;
+/// When the `serde` feature is enabled, this module provides `Serializer` and `Deserializer`
+/// implementations to link this crate into the serde data model.
+#[cfg(feature = "serde")]
+#[allow(missing_debug_implementations)]
+pub mod serde;
 mod tag;
 
-/// Contains utilities for reading binary NBT data.
-pub mod read;
 /// Provides support for parsing stringified NBT data.
 ///
 /// SNBT is essentially an extension of JSON. It uses the same overarching syntax with some changes
@@ -251,7 +255,7 @@ pub mod read;
 ///
 /// Numbers in SNBT generally have a single-character suffix specifying their type (with `i32` and
 /// `f64` being exceptions). If a number without a decimal point is encountered without a type
-/// specifier, then the parser assumes it is an int. Likewise, if a number without a decimal point
+/// specifier, then the parser assumes it is an int. Likewise, if a number with a decimal point
 /// but no type specifier is encountered, then it is assumed to be a double. Note that the type
 /// specifier for doubles (`D` or `d`) is optional, however the integer type specifier (`I` or `i`)
 /// is reserved for arrays and cannot be appended to an integer. Examples are shown below:
@@ -268,7 +272,7 @@ pub mod read;
 /// # Strings
 ///
 /// SNBT treats any sequence of unicode characters not representing another token to be a string. For this
-/// reason, strings are not required to be in double quotes, however they can optionally be enclosed
+/// reason, strings are not required to be in quotes, however they can optionally be enclosed
 /// in either single or double quotes. In other words, `foo` is equivalent to `"foo"` and `'foo'`, and
 /// `"\"quoted\""` is equivalent to `'"quoted"'`. Although Minecraft's parser discourages the use of
 /// whitespace in SNBT, this parser implementation is fully capable of handling it.
@@ -307,8 +311,6 @@ pub mod read;
 /// to be homogenously typed. Whitespace is allowed to make compounds more readable, however one should
 /// refer to the section on strings to avoid unexpected elisions.
 pub mod snbt;
-/// Contains utilities for writing binary NBT data.
-pub mod write;
 
 pub use repr::*;
 pub use tag::*;

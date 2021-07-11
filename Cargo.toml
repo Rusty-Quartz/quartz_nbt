@@ -1,6 +1,6 @@
 [package]
 name = "quartz_nbt"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Cassy343", "maddymakesgames"]
 edition = "2018"
 
@@ -13,6 +13,8 @@ keywords = ["nbt", "minecraft", "data", "encode"]
 categories = ["encoding", "parser-implementations"]
 
 [dependencies]
+anyhow = "1.0.41"
 byteorder = "1.4.3"
 cesu8 = "1.1.0"
 flate2 = "1.0.20"
+serde = { version = "1.0", optional = true }

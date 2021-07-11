@@ -1,5 +1,6 @@
 use crate::{
-    snbt::{self, ParserError},
+    raw,
+    snbt::{self, SnbtError},
     NbtRepr,
     NbtReprError,
     NbtStructureError,
@@ -11,9 +12,20 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
     ops::{Index, IndexMut},
+    str::FromStr,
 };
 
-/// The generic NBT tag type, containing all supported tag variants which wrap around a corresponding rust type.
+/// The generic NBT tag type, containing all supported tag variants which wrap around a corresponding
+/// rust type.
+///
+/// This type will implement both `Serialize` and `Deserialize` when the serde feature is enabled,
+/// however this type should still be read and written with the utilities in the [`io`] module when
+/// possible if speed is the main priority. When linking into the serde ecosystem, we ensured that all
+/// tag types would have their data inlined into the result NBT output of our Serializer. Because of
+/// this, NBT tags are only compatible with self-describing formats, and also have slower deserialization
+/// implementations due to this restriction.
+///
+/// [`io`]: crate::io
 #[derive(Clone, PartialEq)]
 pub enum NbtTag {
     /// A signed, one-byte integer.
@@ -28,7 +40,7 @@ pub enum NbtTag {
     Float(f32),
     /// A 64-bit floating point value.
     Double(f64),
-    /// An array (vec) of signed, one-byte integers.
+    /// An array (vec) of one-byte integers. Minecraft treats this as an array of signed bytes.
     ByteArray(Vec<i8>),
     /// A UTF-8 string.
     String(String),
@@ -71,16 +83,7 @@ impl NbtTag {
         }
     }
 
-    /// Returns the name of each tag type
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use quartz_nbt::NbtTag;
-    /// assert_eq!(NbtTag::Float(0.0f32).type_string(), "Float");
-    /// assert_eq!(NbtTag::LongArray(Vec::new()).type_string(), "Long Array");
-    /// ```
-    pub fn type_string(&self) -> &'static str {
+    pub(crate) fn tag_name(&self) -> &'static str {
         match self {
             NbtTag::Byte(_) => "Byte",
             NbtTag::Short(_) => "Short",
@@ -89,9 +92,9 @@ impl NbtTag {
             NbtTag::Float(_) => "Float",
             NbtTag::Double(_) => "Double",
             NbtTag::String(_) => "String",
-            NbtTag::ByteArray(_) => "Byte Array",
-            NbtTag::IntArray(_) => "Int Array",
-            NbtTag::LongArray(_) => "Long Array",
+            NbtTag::ByteArray(_) => "ByteArray",
+            NbtTag::IntArray(_) => "IntArray",
+            NbtTag::LongArray(_) => "LongArray",
             NbtTag::Compound(_) => "Compound",
             NbtTag::List(_) => "List",
         }
@@ -253,6 +256,18 @@ impl From<bool> for NbtTag {
     }
 }
 
+impl From<u8> for NbtTag {
+    fn from(value: u8) -> Self {
+        NbtTag::Byte(value as i8)
+    }
+}
+
+impl From<Vec<u8>> for NbtTag {
+    fn from(value: Vec<u8>) -> Self {
+        NbtTag::ByteArray(raw::cast_byte_buf_to_signed(value))
+    }
+}
+
 impl<T: NbtRepr> From<T> for NbtTag {
     fn from(x: T) -> Self {
         NbtTag::Compound(x.to_nbt())
@@ -269,7 +284,7 @@ macro_rules! prim_from_tag {
                     if let NbtTag::$tag(value) = tag {
                         Ok(*value)
                     } else {
-                        Err(NbtStructureError::TypeMismatch)
+                        Err(NbtStructureError::type_mismatch(stringify!($tag), tag.tag_name()))
                     }
                 }
             }
@@ -291,11 +306,25 @@ impl TryFrom<&NbtTag> for bool {
 
     fn try_from(tag: &NbtTag) -> Result<Self, Self::Error> {
         match tag {
-            NbtTag::Byte(value) => Ok(*value != 0),
-            NbtTag::Short(value) => Ok(*value != 0),
-            NbtTag::Int(value) => Ok(*value != 0),
-            NbtTag::Long(value) => Ok(*value != 0),
-            _ => Err(NbtStructureError::TypeMismatch),
+            &NbtTag::Byte(value) => Ok(value != 0),
+            &NbtTag::Short(value) => Ok(value != 0),
+            &NbtTag::Int(value) => Ok(value != 0),
+            &NbtTag::Long(value) => Ok(value != 0),
+            _ => Err(NbtStructureError::type_mismatch(
+                "Byte, Short, Int, or Long",
+                tag.tag_name(),
+            )),
+        }
+    }
+}
+
+impl TryFrom<&NbtTag> for u8 {
+    type Error = NbtStructureError;
+
+    fn try_from(tag: &NbtTag) -> Result<Self, Self::Error> {
+        match tag {
+            &NbtTag::Byte(value) => Ok(value as u8),
+            _ => Err(NbtStructureError::type_mismatch("Byte", tag.tag_name())),
         }
     }
 }
@@ -310,7 +339,7 @@ macro_rules! ref_from_tag {
                     if let NbtTag::$tag(value) = tag {
                         Ok(value)
                     } else {
-                        Err(NbtStructureError::TypeMismatch)
+                        Err(NbtStructureError::type_mismatch(stringify!($tag), tag.tag_name()))
                     }
                 }
             }
@@ -322,7 +351,7 @@ macro_rules! ref_from_tag {
                     if let NbtTag::$tag(value) = tag {
                         Ok(value)
                     } else {
-                        Err(NbtStructureError::TypeMismatch)
+                        Err(NbtStructureError::type_mismatch(stringify!($tag), tag.tag_name()))
                     }
                 }
             }
@@ -349,6 +378,33 @@ ref_from_tag!(
     [i64], LongArray
 );
 
+impl<'a> TryFrom<&'a NbtTag> for &'a u8 {
+    type Error = NbtStructureError;
+
+    fn try_from(tag: &'a NbtTag) -> Result<Self, Self::Error> {
+        if let NbtTag::Byte(value) = tag {
+            Ok(unsafe { &*(value as *const i8 as *const u8) })
+        } else {
+            Err(NbtStructureError::type_mismatch("Byte", tag.tag_name()))
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a NbtTag> for &'a [u8] {
+    type Error = NbtStructureError;
+
+    fn try_from(tag: &'a NbtTag) -> Result<Self, Self::Error> {
+        if let NbtTag::ByteArray(value) = tag {
+            Ok(raw::cast_bytes_to_unsigned(value.as_slice()))
+        } else {
+            Err(NbtStructureError::type_mismatch(
+                "ByteArray",
+                tag.tag_name(),
+            ))
+        }
+    }
+}
+
 macro_rules! from_tag {
     ($($type:ty, $tag:ident);*) => {
         $(
@@ -359,7 +415,7 @@ macro_rules! from_tag {
                     if let NbtTag::$tag(value) = tag {
                         Ok(value)
                     } else {
-                        Err(NbtStructureError::TypeMismatch)
+                        Err(NbtStructureError::type_mismatch(stringify!($tag), tag.tag_name()))
                     }
                 }
             }
@@ -382,15 +438,42 @@ from_tag!(
     Vec<i64>, LongArray
 );
 
+impl TryFrom<NbtTag> for Vec<u8> {
+    type Error = NbtStructureError;
+
+    fn try_from(tag: NbtTag) -> Result<Self, Self::Error> {
+        if let NbtTag::ByteArray(value) = tag {
+            Ok(raw::cast_byte_buf_to_unsigned(value))
+        } else {
+            Err(NbtStructureError::type_mismatch(
+                "ByteArray",
+                tag.tag_name(),
+            ))
+        }
+    }
+}
+
 /// The NBT tag list type which is essentially just a wrapper for a vec of NBT tags.
+///
+/// This type will implement both `Serialize` and `Deserialize` when the serde feature is enabled,
+/// however this type should still be read and written with the utilities in the [`io`] module when
+/// possible if speed is the main priority. See [`NbtTag`] for more details.
+///
+/// [`io`]: crate::io
+/// [`NbtTag`]: crate::NbtTag
 #[repr(transparent)]
 #[derive(Clone, PartialEq)]
 pub struct NbtList(Vec<NbtTag>);
 
 impl NbtList {
     /// Returns a new NBT tag list with an empty internal vec.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         NbtList(Vec::new())
+    }
+
+    /// Returns a mutable reference to the internal vector of this NBT list.
+    pub fn inner_mut(&mut self) -> &mut Vec<NbtTag> {
+        &mut self.0
     }
 
     /// Returns the internal vector of this NBT list.
@@ -415,10 +498,10 @@ impl NbtList {
     /// ```
     ///
     /// [`NbtList`]: crate::tag::NbtList
-    pub fn clone_from<'a, T, L>(list: &'a L) -> Self
+    pub fn clone_from<'a, T, L>(list: L) -> Self
     where
         T: Clone + Into<NbtTag> + 'a,
-        &'a L: IntoIterator<Item = &'a T>,
+        L: IntoIterator<Item = &'a T>,
     {
         NbtList(list.into_iter().map(|x| x.clone().into()).collect())
     }
@@ -428,10 +511,10 @@ impl NbtList {
     ///
     /// [`NbtCompound`]: crate::tag::NbtCompound
     /// [`NbtList`]: crate::tag::NbtList
-    pub fn clone_repr_from<'a, T, L>(list: &'a L) -> Self
+    pub fn clone_repr_from<'a, T, L>(list: L) -> Self
     where
         T: NbtRepr + 'a,
-        &'a L: IntoIterator<Item = &'a T>,
+        L: IntoIterator<Item = &'a T>,
     {
         NbtList(list.into_iter().map(|x| x.to_nbt().into()).collect())
     }
@@ -448,10 +531,10 @@ impl NbtList {
     /// list.push(2.0f64);
     ///
     /// let mut iter = list.iter_map::<i32>();
-    /// assert_eq!(Some(Ok(0i32)), iter.next());
-    /// assert_eq!(Some(Ok(1i32)), iter.next());
-    /// assert_eq!(Some(Err(NbtStructureError::TypeMismatch)), iter.next());
-    /// assert_eq!(None, iter.next());
+    /// assert!(matches!(iter.next(), Some(Ok(0i32))));
+    /// assert!(matches!(iter.next(), Some(Ok(1i32))));
+    /// assert!(matches!(iter.next(), Some(Err(..)))); // Type mismatch
+    /// assert!(iter.next().is_none());
     /// ```
     pub fn iter_map<'a, T: TryFrom<&'a NbtTag>>(
         &'a self,
@@ -469,7 +552,7 @@ impl NbtList {
 
     /// Converts this tag list to a valid SNBT string.
     pub fn to_snbt(&self) -> String {
-        let mut snbt_list = String::with_capacity(2 + 8 * self.len());
+        let mut snbt_list = String::with_capacity(2);
         snbt_list.push('[');
         snbt_list.push_str(
             &self
@@ -503,22 +586,21 @@ impl NbtList {
     /// # use quartz_nbt::*;
     /// let mut list = NbtList::clone_from(&vec![1i32, 2, 3]);
     ///
-    /// assert_eq!(list.get::<i32>(0), Ok(1));
-    /// assert_eq!(
-    ///     list.get::<f64>(0),
-    ///     Err(NbtReprError::Conversion(NbtStructureError::TypeMismatch))
-    /// );
-    /// assert_eq!(
-    ///     list.get::<i32>(10),
-    ///     Err(NbtReprError::Structure(NbtStructureError::InvalidIndex))
-    /// );
+    /// assert!(matches!(list.get::<i32>(0), Ok(1)));
+    /// assert!(list.get::<f64>(0).is_err()); // Type mismatch
+    /// assert!(list.get::<i32>(10).is_err()); // Invalid index
     /// ```
-    pub fn get<'a, T: TryFrom<&'a NbtTag>>(
-        &'a self,
-        index: usize,
-    ) -> Result<T, NbtReprError<T::Error>> {
-        T::try_from(self.0.get(index).ok_or(NbtStructureError::InvalidIndex)?)
-            .map_err(NbtReprError::conversion)
+    pub fn get<'a, T>(&'a self, index: usize) -> Result<T, NbtReprError>
+    where
+        T: TryFrom<&'a NbtTag>,
+        T::Error: Into<anyhow::Error>,
+    {
+        T::try_from(
+            self.0
+                .get(index)
+                .ok_or(NbtStructureError::invalid_index(index, self.len()))?,
+        )
+        .map_err(NbtReprError::from_any)
     }
 
     /// Returns a mutable reference to the tag at the given index, or an error if the index is out of bounds or
@@ -531,26 +613,22 @@ impl NbtList {
     ///
     /// *list.get_mut::<&mut i32>(0).unwrap() += 1;
     ///
-    /// assert_eq!(list.get::<i32>(0), Ok(2));
-    /// assert_eq!(
-    ///     list.get::<f64>(0),
-    ///     Err(NbtReprError::Conversion(NbtStructureError::TypeMismatch))
-    /// );
-    /// assert_eq!(
-    ///     list.get::<i32>(10),
-    ///     Err(NbtReprError::Structure(NbtStructureError::InvalidIndex))
-    /// );
+    /// assert!(matches!(list.get::<i32>(0), Ok(2)));
+    /// assert!(list.get::<f64>(0).is_err()); // Type mismatch
+    /// assert!(list.get::<i32>(10).is_err()); // Invalid index
     /// ```
-    pub fn get_mut<'a, T: TryFrom<&'a mut NbtTag>>(
-        &'a mut self,
-        index: usize,
-    ) -> Result<T, NbtReprError<T::Error>> {
+    pub fn get_mut<'a, T>(&'a mut self, index: usize) -> Result<T, NbtReprError>
+    where
+        T: TryFrom<&'a mut NbtTag>,
+        T::Error: Into<anyhow::Error>,
+    {
+        let len = self.len();
         T::try_from(
             self.0
                 .get_mut(index)
-                .ok_or(NbtStructureError::InvalidIndex)?,
+                .ok_or(NbtStructureError::invalid_index(index, len))?,
         )
-        .map_err(NbtReprError::conversion)
+        .map_err(NbtReprError::from_any)
     }
 
     /// Pushes the given value to the back of the list after wrapping it in an `NbtTag`.
@@ -561,15 +639,9 @@ impl NbtList {
     ///
     /// list.push(10i32);
     ///
-    /// assert_eq!(list.get::<i32>(0), Ok(10));
-    /// assert_eq!(
-    ///     list.get::<f64>(0),
-    ///     Err(NbtReprError::Conversion(NbtStructureError::TypeMismatch))
-    /// );
-    /// assert_eq!(
-    ///     list.get::<i32>(10),
-    ///     Err(NbtReprError::Structure(NbtStructureError::InvalidIndex))
-    /// );
+    /// assert!(matches!(list.get::<i32>(0), Ok(10)));
+    /// assert!(list.get::<f64>(0).is_err()); // Type mismatch
+    /// assert!(list.get::<i32>(10).is_err()); // Invalid index
     /// ```
     pub fn push<T: Into<NbtTag>>(&mut self, value: T) {
         self.0.push(value.into());
@@ -582,14 +654,14 @@ impl<T: Into<NbtTag>> From<Vec<T>> for NbtList {
     }
 }
 
-impl AsRef<Vec<NbtTag>> for NbtList {
-    fn as_ref(&self) -> &Vec<NbtTag> {
+impl AsRef<[NbtTag]> for NbtList {
+    fn as_ref(&self) -> &[NbtTag] {
         &self.0
     }
 }
 
-impl AsMut<Vec<NbtTag>> for NbtList {
-    fn as_mut(&mut self) -> &mut Vec<NbtTag> {
+impl AsMut<[NbtTag]> for NbtList {
+    fn as_mut(&mut self) -> &mut [NbtTag] {
         &mut self.0
     }
 }
@@ -622,6 +694,13 @@ impl IndexMut<usize> for NbtList {
 
 /// The NBT tag compound type which is essentially just a wrapper for a hash map of string keys
 /// to tag values.
+///
+/// This type will implement both `Serialize` and `Deserialize` when the serde feature is enabled,
+/// however this type should still be read and written with the utilities in the [`io`] module when
+/// possible if speed is the main priority. See [`NbtTag`] for more details.
+///
+/// [`NbtTag`]: crate::NbtTag
+/// [`io`]: crate::io
 #[repr(transparent)]
 #[derive(Clone, PartialEq)]
 pub struct NbtCompound(HashMap<String, NbtTag>);
@@ -630,6 +709,16 @@ impl NbtCompound {
     /// Returns a new NBT tag compound with an empty internal hash map.
     pub fn new() -> Self {
         NbtCompound(HashMap::new())
+    }
+
+    /// Returns a reference to the internal hash map of this compound.
+    pub fn inner(&self) -> &HashMap<String, NbtTag> {
+        &self.0
+    }
+
+    /// Returns a mutable reference to the internal hash map of this compound.
+    pub fn inner_mut(&mut self) -> &mut HashMap<String, NbtTag> {
+        &mut self.0
     }
 
     /// Returns the internal hash map of this NBT compound.
@@ -713,11 +802,11 @@ impl NbtCompound {
 
     /// Converts this tag compound into a valid SNBT string.
     pub fn to_snbt(&self) -> String {
-        let mut snbt_compound = String::with_capacity(2 + 16 * self.len());
+        let mut snbt_compound = String::with_capacity(2);
         snbt_compound.push('{');
         snbt_compound.push_str(
             &self
-                .as_ref()
+                .0
                 .iter()
                 .map(|(key, tag)| {
                     if NbtTag::should_quote(key) {
@@ -754,24 +843,24 @@ impl NbtCompound {
     /// let mut compound = NbtCompound::new();
     /// compound.insert("test", 1.0f64);
     ///
-    /// assert_eq!(compound.get::<_, f64>("test"), Ok(1.0f64));
-    /// assert_eq!(
-    ///     compound.get::<_, i32>("test"),
-    ///     Err(NbtReprError::Conversion(NbtStructureError::TypeMismatch))
-    /// );
-    /// assert_eq!(
-    ///     compound.get::<_, f64>("foo"),
-    ///     Err(NbtReprError::Structure(NbtStructureError::MissingTag))
-    /// );
+    /// assert!(matches!(compound.get::<_, f64>("test"), Ok(1.0f64)));
+    /// assert!(compound.get::<_, i32>("test").is_err()); // Type mismatch
+    /// assert!(compound.get::<_, f64>("foo").is_err()); // Missing tag
     /// ```
-    pub fn get<'a, K, T>(&'a self, name: &K) -> Result<T, NbtReprError<T::Error>>
+    pub fn get<'a, 'b, K, T>(&'a self, name: &'b K) -> Result<T, NbtReprError>
     where
         String: Borrow<K>,
         K: Hash + Eq + ?Sized,
+        &'b K: Into<String>,
         T: TryFrom<&'a NbtTag>,
+        T::Error: Into<anyhow::Error>,
     {
-        T::try_from(self.0.get(name).ok_or(NbtStructureError::MissingTag)?)
-            .map_err(NbtReprError::conversion)
+        T::try_from(
+            self.0
+                .get(name)
+                .ok_or(NbtStructureError::missing_tag(name))?,
+        )
+        .map_err(NbtReprError::from_any)
     }
 
     /// Returns the value of the tag with the given name, or an error if no tag exists with the given name
@@ -784,24 +873,24 @@ impl NbtCompound {
     ///
     /// *compound.get_mut::<_, &mut f64>("test").unwrap() *= 2.0;
     ///
-    /// assert_eq!(compound.get::<_, f64>("test"), Ok(2.0f64));
-    /// assert_eq!(
-    ///     compound.get::<_, i32>("test"),
-    ///     Err(NbtReprError::Conversion(NbtStructureError::TypeMismatch))
-    /// );
-    /// assert_eq!(
-    ///     compound.get::<_, f64>("foo"),
-    ///     Err(NbtReprError::Structure(NbtStructureError::MissingTag))
-    /// );
+    /// assert!(matches!(compound.get::<_, f64>("test"), Ok(2.0f64)));
+    /// assert!(compound.get::<_, i32>("test").is_err()); // Type mismatch
+    /// assert!(compound.get::<_, f64>("foo").is_err()); // Missing tag
     /// ```
-    pub fn get_mut<'a, K, T>(&'a mut self, name: &K) -> Result<T, NbtReprError<T::Error>>
+    pub fn get_mut<'a, 'b, K, T>(&'a mut self, name: &'b K) -> Result<T, NbtReprError>
     where
         String: Borrow<K>,
         K: Hash + Eq + ?Sized,
+        &'b K: Into<String>,
         T: TryFrom<&'a mut NbtTag>,
+        T::Error: Into<anyhow::Error>,
     {
-        T::try_from(self.0.get_mut(name).ok_or(NbtStructureError::MissingTag)?)
-            .map_err(NbtReprError::conversion)
+        T::try_from(
+            self.0
+                .get_mut(name)
+                .ok_or(NbtStructureError::missing_tag(name))?,
+        )
+        .map_err(NbtReprError::from_any)
     }
 
     /// Returns whether or not this compound has a tag with the given name.
@@ -830,7 +919,7 @@ impl NbtCompound {
     /// let mut compound = NbtCompound::new();
     /// compound.insert("test", 1.0f64);
     ///
-    /// assert_eq!(compound.get::<_, f64>("test"), Ok(1.0f64));
+    /// assert!(matches!(compound.get::<_, f64>("test"), Ok(1.0f64)));
     /// ```
     pub fn insert<K: Into<String>, T: Into<NbtTag>>(&mut self, name: K, value: T) {
         self.0.insert(name.into(), value.into());
@@ -843,23 +932,19 @@ impl NbtCompound {
     /// ```
     /// # use quartz_nbt::NbtCompound;
     /// let tag = NbtCompound::from_snbt(r#"{string:Stuff, list:[I;1,2,3,4,5]}"#).unwrap();
-    /// assert_eq!(tag.get::<_, &str>("string"), Ok("Stuff"));
-    /// assert_eq!(tag.get::<_, &[i32]>("list"), Ok(vec![1,2,3,4,5].as_slice()));
+    /// assert!(matches!(tag.get::<_, &str>("string"), Ok("Stuff")));
+    /// assert_eq!(tag.get::<_, &[i32]>("list").unwrap(), vec![1,2,3,4,5].as_slice());
     /// ```
-    pub fn from_snbt(input: &str) -> Result<Self, ParserError> {
+    pub fn from_snbt(input: &str) -> Result<Self, SnbtError> {
         snbt::parse(input)
     }
 }
 
-impl AsRef<HashMap<String, NbtTag>> for NbtCompound {
-    fn as_ref(&self) -> &HashMap<String, NbtTag> {
-        &self.0
-    }
-}
+impl FromStr for NbtCompound {
+    type Err = SnbtError;
 
-impl AsMut<HashMap<String, NbtTag>> for NbtCompound {
-    fn as_mut(&mut self) -> &mut HashMap<String, NbtTag> {
-        &mut self.0
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_snbt(s)
     }
 }
 
@@ -872,5 +957,215 @@ impl Display for NbtCompound {
 impl Debug for NbtCompound {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self.to_snbt(), f)
+    }
+}
+
+#[cfg(feature = "serde")]
+pub use serde_impl::*;
+
+#[cfg(feature = "serde")]
+mod serde_impl {
+    use super::*;
+    use serde::{
+        de::{self, MapAccess, Visitor},
+        Deserialize,
+        Deserializer,
+        Serialize,
+        Serializer,
+    };
+
+    impl Serialize for NbtTag {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer {
+            match self {
+                &NbtTag::Byte(value) => serializer.serialize_i8(value),
+                &NbtTag::Short(value) => serializer.serialize_i16(value),
+                &NbtTag::Int(value) => serializer.serialize_i32(value),
+                &NbtTag::Long(value) => serializer.serialize_i64(value),
+                &NbtTag::Float(value) => serializer.serialize_f32(value),
+                &NbtTag::Double(value) => serializer.serialize_f64(value),
+                NbtTag::ByteArray(bytes) =>
+                    serializer.serialize_bytes(raw::cast_bytes_to_unsigned(bytes.as_slice())),
+                NbtTag::String(value) => serializer.serialize_str(value),
+                NbtTag::List(list) => list.serialize(serializer),
+                NbtTag::Compound(compound) => compound.serialize(serializer),
+                NbtTag::IntArray(array) => array.serialize(serializer),
+                NbtTag::LongArray(array) => array.serialize(serializer),
+            }
+        }
+    }
+
+    impl<'de> Deserialize<'de> for NbtTag {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de> {
+            deserializer.deserialize_any(NbtTagVisitor)
+        }
+    }
+
+    struct NbtTagVisitor;
+
+    impl<'de> Visitor<'de> for NbtTagVisitor {
+        type Value = NbtTag;
+
+        fn expecting(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "a valid NBT type")
+        }
+
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Byte(if v { 1 } else { 0 }))
+        }
+
+        fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Byte(v))
+        }
+
+        fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Byte(v as i8))
+        }
+
+        fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Short(v))
+        }
+
+        fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Int(v))
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Long(v))
+        }
+
+        fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Float(v))
+        }
+
+        fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::Double(v))
+        }
+
+        fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+        where E: de::Error {
+            self.visit_byte_buf(v.to_owned())
+        }
+
+        fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::ByteArray(raw::cast_byte_buf_to_signed(v)))
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::String(v.to_owned()))
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where E: de::Error {
+            Ok(NbtTag::String(v))
+        }
+
+        fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+        where A: MapAccess<'de> {
+            let mut dest = match map.size_hint() {
+                Some(hint) => HashMap::with_capacity(hint),
+                None => HashMap::new(),
+            };
+            while let Some((key, tag)) = map.next_entry::<String, NbtTag>()? {
+                dest.insert(key, tag);
+            }
+            Ok(NbtTag::Compound(NbtCompound(dest)))
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where A: de::SeqAccess<'de> {
+            enum ArbitraryList {
+                Byte(Vec<i8>),
+                Int(Vec<i32>),
+                Long(Vec<i64>),
+                Tag(Vec<NbtTag>),
+                Indeterminate,
+            }
+
+            let mut list = ArbitraryList::Indeterminate;
+
+            fn init_vec<T>(element: T, size: Option<usize>) -> Vec<T> {
+                match size {
+                    Some(size) => {
+                        // Add one because the size hint returns the remaining amount
+                        let mut vec = Vec::with_capacity(1 + size);
+                        vec.push(element);
+                        vec
+                    }
+                    None => vec![element],
+                }
+            }
+
+            while let Some(tag) = seq.next_element::<NbtTag>()? {
+                match (tag, &mut list) {
+                    (NbtTag::Byte(value), ArbitraryList::Byte(list)) => list.push(value),
+                    (NbtTag::Int(value), ArbitraryList::Int(list)) => list.push(value),
+                    (NbtTag::Long(value), ArbitraryList::Long(list)) => list.push(value),
+                    (tag, ArbitraryList::Tag(list)) => list.push(tag),
+                    (tag, list @ ArbitraryList::Indeterminate) => {
+                        let size = seq.size_hint();
+                        match tag {
+                            NbtTag::Byte(value) =>
+                                *list = ArbitraryList::Byte(init_vec(value, size)),
+                            NbtTag::Int(value) => *list = ArbitraryList::Int(init_vec(value, size)),
+                            NbtTag::Long(value) =>
+                                *list = ArbitraryList::Long(init_vec(value, size)),
+                            tag => *list = ArbitraryList::Tag(init_vec(tag, size)),
+                        }
+                    }
+                    _ =>
+                        return Err(de::Error::custom(
+                            "tag type mismatch when deserializing array",
+                        )),
+                }
+            }
+
+            Ok(match list {
+                ArbitraryList::Byte(list) => NbtTag::ByteArray(list),
+                ArbitraryList::Int(list) => NbtTag::IntArray(list),
+                ArbitraryList::Long(list) => NbtTag::LongArray(list),
+                ArbitraryList::Tag(list) => NbtTag::List(NbtList(list)),
+                ArbitraryList::Indeterminate => NbtTag::List(NbtList::new()),
+            })
+        }
+    }
+
+    impl Serialize for NbtList {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer {
+            self.0.serialize(serializer)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for NbtList {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de> {
+            Ok(NbtList(Deserialize::deserialize(deserializer)?))
+        }
+    }
+
+    impl Serialize for NbtCompound {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer {
+            self.0.serialize(serializer)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for NbtCompound {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de> {
+            Ok(NbtCompound(Deserialize::deserialize(deserializer)?))
+        }
     }
 }
