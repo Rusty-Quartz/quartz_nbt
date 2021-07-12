@@ -170,17 +170,11 @@ where
     // Compound ID
     raw::write_u8(writer, 0xA)?;
     raw::write_string(writer, root_name.unwrap_or(""))?;
-    write_compound(writer, root)
-}
-
-fn write_compound<W: Write>(writer: &mut W, compound: &NbtCompound) -> Result<(), NbtIoError> {
-    for (name, tag) in compound.inner().iter() {
+    for (name, tag) in root.inner() {
         raw::write_u8(writer, raw::id_for_tag(Some(tag)))?;
         raw::write_string(writer, name)?;
         write_tag_body(writer, tag)?;
     }
-
-    // TAG_End
     raw::write_u8(writer, raw::id_for_tag(None))?;
     Ok(())
 }
@@ -205,7 +199,7 @@ fn write_tag_body<W: Write>(writer: &mut W, tag: &NbtTag) -> Result<(), NbtIoErr
                 raw::write_u8(writer, type_id)?;
                 raw::write_i32(writer, value.len() as i32)?;
 
-                for sub_tag in value.as_ref().iter() {
+                for sub_tag in value.as_ref() {
                     if raw::id_for_tag(Some(sub_tag)) != type_id {
                         return Err(NbtIoError::NonHomogenousList);
                     }
@@ -213,7 +207,16 @@ fn write_tag_body<W: Write>(writer: &mut W, tag: &NbtTag) -> Result<(), NbtIoErr
                     write_tag_body(writer, sub_tag)?;
                 }
             },
-        NbtTag::Compound(value) => write_compound(writer, value)?,
+        NbtTag::Compound(value) => {
+            for (name, tag) in value.inner() {
+                raw::write_u8(writer, raw::id_for_tag(Some(tag)))?;
+                raw::write_string(writer, name)?;
+                write_tag_body(writer, tag)?;
+            }
+
+            // TAG_End
+            raw::write_u8(writer, raw::id_for_tag(None))?;
+        }
         NbtTag::IntArray(value) => {
             raw::write_i32(writer, value.len() as i32)?;
 

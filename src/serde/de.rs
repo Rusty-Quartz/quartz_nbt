@@ -30,20 +30,12 @@ impl<'a, R: Read> Deserializer<'a, R> {
         }
 
         let root_name = raw::read_string(reader)?;
-        Ok((Deserializer {
-            reader
-        }, root_name))
+        Ok((Deserializer { reader }, root_name))
     }
 }
 
 impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for Deserializer<'a, R> {
     type Error = NbtIoError;
-
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-            V: Visitor<'de> {
-        self.deserialize_map(visitor)
-    }
 
     forward_to_deserialize_any! {
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
@@ -51,11 +43,19 @@ impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for Deserializer<'a, R> {
         tuple_struct identifier ignored_any
     }
 
+    #[inline]
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where V: Visitor<'de> {
+        self.deserialize_map(visitor)
+    }
+
+    #[inline]
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         DeserializeTag::<_, 0xA>::new(self.reader).deserialize_map(visitor)
     }
 
+    #[inline]
     fn deserialize_struct<V>(
         self,
         _name: &'static str,
@@ -68,6 +68,7 @@ impl<'de: 'a, 'a, R: Read> de::Deserializer<'de> for Deserializer<'a, R> {
         self.deserialize_map(visitor)
     }
 
+    #[inline]
     fn deserialize_enum<V>(
         self,
         name: &'static str,
@@ -103,28 +104,7 @@ where
                 len,
             ))
         }
-        0x9 => {
-            let id = raw::read_u8(reader)?;
-            let len = raw::read_i32(reader)? as usize;
-
-            macro_rules! drive_visitor {
-                ($($id:literal)*) => {
-                    match id {
-                        0x0 => {
-                            if len == 0 {
-                                visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, 0x0>::new(reader), len))
-                            } else {
-                                Err(NbtIoError::InvalidTagId(0))
-                            }
-                        }
-                        $( $id => visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, $id>::new(reader), len)), )*
-                        _ => Err(NbtIoError::InvalidTagId(id))
-                    }
-                };
-            }
-
-            drive_visitor!(0x1 0x2 0x3 0x4 0x5 0x6 0x7 0x8 0x9 0xA 0xB 0xC)
-        }
+        0x9 => drive_visitor_seq_tag(reader, visitor),
         0xB => {
             let len = raw::read_i32(reader)? as usize;
             visitor.visit_seq(DeserializeSeq::new(
@@ -143,6 +123,33 @@ where
     }
 }
 
+fn drive_visitor_seq_tag<'de, R, V>(reader: &mut R, visitor: V) -> Result<V::Value, NbtIoError>
+where
+    R: Read,
+    V: Visitor<'de>,
+{
+    let id = raw::read_u8(reader)?;
+    let len = raw::read_i32(reader)? as usize;
+
+    macro_rules! drive_visitor {
+        ($($id:literal)*) => {
+            match id {
+                0x0 => {
+                    if len == 0 {
+                        visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, 0x0>::new(reader), len))
+                    } else {
+                        Err(NbtIoError::InvalidTagId(0))
+                    }
+                }
+                $( $id => visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, $id>::new(reader), len)), )*
+                _ => Err(NbtIoError::InvalidTagId(id))
+            }
+        };
+    }
+
+    drive_visitor!(0x1 0x2 0x3 0x4 0x5 0x6 0x7 0x8 0x9 0xA 0xB 0xC)
+}
+
 pub struct DeserializeTag<'a, R, const TAG_ID: u8> {
     reader: &'a mut R,
 }
@@ -158,6 +165,11 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
 {
     type Error = NbtIoError;
 
+    forward_to_deserialize_any! {
+        i8 i16 i32 i64 i128 u16 u32 u64 u128 char f32 f64 string
+    }
+
+    #[inline]
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: serde::de::Visitor<'de> {
         match TAG_ID {
@@ -175,28 +187,7 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
                 ))
             }
             0x8 => visitor.visit_string(raw::read_string(self.reader)?),
-            0x9 => {
-                let id = raw::read_u8(self.reader)?;
-                let len = raw::read_i32(self.reader)? as usize;
-
-                macro_rules! drive_visitor {
-                    ($($id:literal)*) => {
-                        match id {
-                            0x0 => {
-                                if len == 0 {
-                                    visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, 0x0>::new(self.reader), len))
-                                } else {
-                                    Err(NbtIoError::InvalidTagId(0))
-                                }
-                            }
-                            $( $id => visitor.visit_seq(DeserializeSeq::new(DeserializeTag::<_, $id>::new(self.reader), len)), )*
-                            _ => Err(NbtIoError::InvalidTagId(id))
-                        }
-                    };
-                }
-
-                drive_visitor!(0x1 0x2 0x3 0x4 0x5 0x6 0x7 0x8 0x9 0xA 0xB 0xC)
-            }
+            0x9 => drive_visitor_seq_tag(self.reader, visitor),
             0xA => visitor.visit_map(DeserializeMap::new(self.reader)),
             0xB => {
                 let len = raw::read_i32(self.reader)? as usize;
@@ -216,82 +207,27 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
         }
     }
 
-    forward_to_deserialize_any! {
-        i128 u16 u32 u64 u128 char
-    }
-
+    #[inline]
     fn deserialize_bool<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         if TAG_ID == 0x1 {
             visitor.visit_bool(raw::read_bool(self.reader)?)
         } else {
-            Err(NbtIoError::TagTypeMismatch(0x1, TAG_ID))
+            self.deserialize_any(visitor)
         }
     }
 
-    fn deserialize_i8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x1 {
-            visitor.visit_i8(raw::read_i8(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x1, TAG_ID))
-        }
-    }
-
+    #[inline]
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         if TAG_ID == 0x1 {
             visitor.visit_u8(raw::read_u8(self.reader)?)
         } else {
-            Err(NbtIoError::TagTypeMismatch(0x1, TAG_ID))
+            self.deserialize_any(visitor)
         }
     }
 
-    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x2 {
-            visitor.visit_i16(raw::read_i16(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x2, TAG_ID))
-        }
-    }
-
-    fn deserialize_i32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x3 {
-            visitor.visit_i32(raw::read_i32(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x3, TAG_ID))
-        }
-    }
-
-    fn deserialize_i64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x4 {
-            visitor.visit_i64(raw::read_i64(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x4, TAG_ID))
-        }
-    }
-
-    fn deserialize_f32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x5 {
-            visitor.visit_f32(raw::read_f32(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x5, TAG_ID))
-        }
-    }
-
-    fn deserialize_f64<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x6 {
-            visitor.visit_f64(raw::read_f64(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x6, TAG_ID))
-        }
-    }
-
+    #[inline]
     fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         if TAG_ID == 0x7 {
@@ -300,10 +236,11 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
             self.reader.read_exact(&mut array)?;
             visitor.visit_byte_buf(array)
         } else {
-            Err(NbtIoError::TagTypeMismatch(0x7, TAG_ID))
+            self.deserialize_any(visitor)
         }
     }
 
+    #[inline]
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         if TAG_ID == 0x7 {
@@ -312,19 +249,11 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
             self.reader.read_exact(&mut array)?;
             visitor.visit_bytes(&array)
         } else {
-            Err(NbtIoError::TagTypeMismatch(0x7, TAG_ID))
+            self.deserialize_any(visitor)
         }
     }
 
-    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where V: Visitor<'de> {
-        if TAG_ID == 0x8 {
-            visitor.visit_string(raw::read_string(self.reader)?)
-        } else {
-            Err(NbtIoError::TagTypeMismatch(0x8, TAG_ID))
-        }
-    }
-
+    #[inline]
     fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         if TAG_ID == 0x8 {
@@ -334,20 +263,23 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
                 Cow::Owned(string) => visitor.visit_string(string),
             }
         } else {
-            Err(NbtIoError::TagTypeMismatch(0x8, TAG_ID))
+            self.deserialize_any(visitor)
         }
     }
 
+    #[inline]
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         visitor.visit_some(self)
     }
 
+    #[inline]
     fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         visitor.visit_unit()
     }
 
+    #[inline]
     fn deserialize_unit_struct<V>(
         self,
         _name: &'static str,
@@ -359,6 +291,7 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
         self.deserialize_unit(visitor)
     }
 
+    #[inline]
     fn deserialize_newtype_struct<V>(
         self,
         _name: &'static str,
@@ -370,16 +303,19 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
         visitor.visit_newtype_struct(self)
     }
 
+    #[inline]
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         drive_visitor_seq_const::<_, _, TAG_ID>(self.reader, visitor)
     }
 
+    #[inline]
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         visitor.visit_map(DeserializeMap::new(self.reader))
     }
 
+    #[inline]
     fn deserialize_struct<V>(
         self,
         _name: &'static str,
@@ -392,11 +328,13 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
         self.deserialize_map(visitor)
     }
 
+    #[inline]
     fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         self.deserialize_seq(visitor)
     }
 
+    #[inline]
     fn deserialize_tuple_struct<V>(
         self,
         _name: &'static str,
@@ -466,11 +404,13 @@ impl<'de, 'a, 'b, R: Read, const TAG_ID: u8> de::Deserializer<'de>
         }
     }
 
+    #[inline]
     fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         self.deserialize_str(visitor)
     }
 
+    #[inline]
     fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         self.deserialize_any(visitor)
@@ -483,6 +423,7 @@ struct DeserializeEnum<'a, R, const TAG_ID: u8> {
 }
 
 impl<'a, R, const TAG_ID: u8> DeserializeEnum<'a, R, TAG_ID> {
+    #[inline]
     fn new(reader: &'a mut R, variant: Cow<'a, str>) -> Self {
         DeserializeEnum { reader, variant }
     }
@@ -492,6 +433,7 @@ impl<'de, 'a, R: Read, const TAG_ID: u8> EnumAccess<'de> for DeserializeEnum<'a,
     type Error = NbtIoError;
     type Variant = DeserializeVariant<'a, R, TAG_ID>;
 
+    #[inline]
     fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
     where V: DeserializeSeed<'de> {
         let de: CowStrDeserializer<'a, Self::Error> = self.variant.into_deserializer();
@@ -504,6 +446,7 @@ struct DeserializeVariant<'a, R, const TAG_ID: u8> {
 }
 
 impl<'a, R, const TAG_ID: u8> DeserializeVariant<'a, R, TAG_ID> {
+    #[inline]
     fn new(reader: &'a mut R) -> Self {
         DeserializeVariant { reader }
     }
@@ -512,20 +455,24 @@ impl<'a, R, const TAG_ID: u8> DeserializeVariant<'a, R, TAG_ID> {
 impl<'de, 'a, R: Read, const TAG_ID: u8> VariantAccess<'de> for DeserializeVariant<'a, R, TAG_ID> {
     type Error = NbtIoError;
 
+    #[cold]
     fn unit_variant(self) -> Result<(), Self::Error> {
         unimplemented!("Unit variant should have been handled by deserialize_enum")
     }
 
+    #[inline]
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
     where T: DeserializeSeed<'de> {
         seed.deserialize(&mut DeserializeTag::<_, TAG_ID>::new(self.reader))
     }
 
+    #[inline]
     fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where V: Visitor<'de> {
         drive_visitor_seq_const::<_, _, TAG_ID>(self.reader, visitor)
     }
 
+    #[inline]
     fn struct_variant<V>(
         self,
         _fields: &'static [&'static str],
@@ -548,6 +495,7 @@ struct DeserializeSeq<'a, R, const TAG_ID: u8> {
 }
 
 impl<'a, R: Read, const TAG_ID: u8> DeserializeSeq<'a, R, TAG_ID> {
+    #[inline]
     fn new(inner: DeserializeTag<'a, R, TAG_ID>, len: usize) -> Self {
         DeserializeSeq {
             inner,
@@ -559,6 +507,7 @@ impl<'a, R: Read, const TAG_ID: u8> DeserializeSeq<'a, R, TAG_ID> {
 impl<'de, 'a, R: Read, const TAG_ID: u8> SeqAccess<'de> for DeserializeSeq<'a, R, TAG_ID> {
     type Error = NbtIoError;
 
+    #[inline]
     fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where T: de::DeserializeSeed<'de> {
         if TAG_ID == 0 || self.remaining == 0 {
@@ -567,8 +516,7 @@ impl<'de, 'a, R: Read, const TAG_ID: u8> SeqAccess<'de> for DeserializeSeq<'a, R
 
         self.remaining -= 1;
 
-        seed.deserialize(&mut self.inner)
-            .map(Some)
+        seed.deserialize(&mut self.inner).map(Some)
     }
 
     #[inline]
@@ -587,6 +535,7 @@ struct DeserializeMap<'a, R> {
 }
 
 impl<'a, R: Read> DeserializeMap<'a, R> {
+    #[inline]
     fn new(reader: &'a mut R) -> Self {
         DeserializeMap { reader, tag_id: 0 }
     }
@@ -615,6 +564,7 @@ impl<'a, R: Read> DeserializeMap<'a, R> {
 impl<'de, 'a, R: Read> MapAccess<'de> for DeserializeMap<'a, R> {
     type Error = NbtIoError;
 
+    #[inline]
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
     where K: de::DeserializeSeed<'de> {
         self.tag_id = raw::read_u8(self.reader)?;
@@ -624,15 +574,18 @@ impl<'de, 'a, R: Read> MapAccess<'de> for DeserializeMap<'a, R> {
         }
 
         let mut buf = Vec::new();
-        let de: CowStrDeserializer<'_, Self::Error> = raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
+        let de: CowStrDeserializer<'_, Self::Error> =
+            raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
         seed.deserialize(de).map(Some)
     }
 
+    #[inline]
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
     where V: de::DeserializeSeed<'de> {
         self.drive_value_visitor(self.tag_id, seed)
     }
 
+    #[inline]
     fn next_entry_seed<K, V>(
         &mut self,
         kseed: K,
@@ -649,7 +602,8 @@ impl<'de, 'a, R: Read> MapAccess<'de> for DeserializeMap<'a, R> {
         }
 
         let mut buf = Vec::new();
-        let de: CowStrDeserializer<'_, Self::Error> = raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
+        let de: CowStrDeserializer<'_, Self::Error> =
+            raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
         let key = kseed.deserialize(de)?;
         Ok(Some((key, self.drive_value_visitor(tag_id, vseed)?)))
     }

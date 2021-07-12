@@ -3,7 +3,8 @@ mod ser;
 mod util;
 
 pub use de::Deserializer;
-pub use ser::{Serializer};
+pub use ser::Serializer;
+pub use util::Ser;
 
 use crate::io::{Flavor, NbtIoError};
 use flate2::{
@@ -12,7 +13,10 @@ use flate2::{
     Compression,
 };
 use serde::{Deserialize, Serialize};
-use std::{io::{Cursor, Read, Write}, marker::PhantomData};
+use std::{
+    io::{Cursor, Read, Write},
+    marker::PhantomData,
+};
 
 /// Serializes the given value as binary NBT data, returning the resulting Vec. The value must
 /// be a struct or non-unit enum variant, else the serializer will return with an error.
@@ -111,18 +115,14 @@ impl<T> Array<T> {
 
 impl<T: Serialize> Serialize for Array<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer
-    {
+    where S: serde::Serializer {
         serializer.serialize_newtype_struct(ARRAY_NEWTYPE_NAME_NICHE, &self.0)
     }
 }
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Array<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>
-    {
+    where D: serde::Deserializer<'de> {
         struct Visitor<T>(PhantomData<T>);
 
         impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Visitor<T> {
@@ -133,9 +133,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Array<T> {
             }
 
             fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
+            where D: serde::Deserializer<'de> {
                 Ok(Array(Deserialize::deserialize(deserializer)?))
             }
         }

@@ -966,6 +966,7 @@ pub use serde_impl::*;
 #[cfg(feature = "serde")]
 mod serde_impl {
     use super::*;
+    use crate::serde::Array;
     use serde::{
         de::{self, MapAccess, Visitor},
         Deserialize,
@@ -973,7 +974,6 @@ mod serde_impl {
         Serialize,
         Serializer,
     };
-    use crate::serde::Array;
 
     impl Serialize for NbtTag {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -985,7 +985,8 @@ mod serde_impl {
                 &NbtTag::Long(value) => serializer.serialize_i64(value),
                 &NbtTag::Float(value) => serializer.serialize_f32(value),
                 &NbtTag::Double(value) => serializer.serialize_f64(value),
-                NbtTag::ByteArray(bytes) => Array(raw::cast_bytes_to_unsigned(bytes.as_slice())).serialize(serializer),
+                NbtTag::ByteArray(bytes) =>
+                    Array(raw::cast_bytes_to_unsigned(bytes.as_slice())).serialize(serializer),
                 NbtTag::String(value) => serializer.serialize_str(value),
                 NbtTag::List(list) => list.serialize(serializer),
                 NbtTag::Compound(compound) => compound.serialize(serializer),
