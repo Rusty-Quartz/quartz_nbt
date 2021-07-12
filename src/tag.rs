@@ -463,7 +463,7 @@ impl TryFrom<NbtTag> for Vec<u8> {
 /// [`NbtTag`]: crate::NbtTag
 #[repr(transparent)]
 #[derive(Clone, PartialEq)]
-pub struct NbtList(Vec<NbtTag>);
+pub struct NbtList(pub(crate) Vec<NbtTag>);
 
 impl NbtList {
     /// Returns a new NBT tag list with an empty internal vec.
@@ -703,7 +703,7 @@ impl IndexMut<usize> for NbtList {
 /// [`io`]: crate::io
 #[repr(transparent)]
 #[derive(Clone, PartialEq)]
-pub struct NbtCompound(HashMap<String, NbtTag>);
+pub struct NbtCompound(pub(crate) HashMap<String, NbtTag>);
 
 impl NbtCompound {
     /// Returns a new NBT tag compound with an empty internal hash map.

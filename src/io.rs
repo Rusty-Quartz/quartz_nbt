@@ -47,15 +47,29 @@ fn read_nbt_uncompressed<R: Read>(reader: &mut R) -> Result<(NbtCompound, String
     }
 
     let root_name = raw::read_string(reader)?;
-    match read_tag_body(reader, 0xA) {
+    match read_tag_body_const::<_, 0xA>(reader) {
         Ok(NbtTag::Compound(compound)) => Ok((compound, root_name)),
         Err(e) => Err(e),
         _ => unreachable!(),
     }
 }
 
-fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> {
-    let tag = match id {
+fn read_tag_body_dyn<R: Read>(reader: &mut R, tag_id: u8) -> Result<NbtTag, NbtIoError> {
+    macro_rules! drive_reader {
+        ($($id:literal)*) => {
+            match tag_id {
+                $( $id => read_tag_body_const::<_, $id>(reader), )*
+                _ => Err(NbtIoError::InvalidTagId(tag_id))
+            }
+        };
+    }
+
+    drive_reader!(0x1 0x2 0x3 0x4 0x5 0x6 0x7 0x8 0x9 0xA 0xB 0xC)
+}
+
+#[inline]
+fn read_tag_body_const<R: Read, const TAG_ID: u8>(reader: &mut R) -> Result<NbtTag, NbtIoError> {
+    let tag = match TAG_ID {
         0x1 => NbtTag::Byte(raw::read_i8(reader)?),
         0x2 => NbtTag::Short(raw::read_i16(reader)?),
         0x3 => NbtTag::Int(raw::read_i32(reader)?),
@@ -73,12 +87,12 @@ fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> 
         }
         0x8 => NbtTag::String(raw::read_string(reader)?),
         0x9 => {
-            let type_id = raw::read_u8(reader)?;
+            let tag_id = raw::read_u8(reader)?;
             let len = raw::read_i32(reader)? as usize;
 
             // Make sure we don't have a list of TAG_End unless it's empty or an invalid type
-            if type_id > 0xC || (type_id == 0 && len > 0) {
-                return Err(NbtIoError::InvalidTagId(type_id));
+            if tag_id > 0xC || (tag_id == 0 && len > 0) {
+                return Err(NbtIoError::InvalidTagId(tag_id));
             }
 
             if len == 0 {
@@ -86,9 +100,23 @@ fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> 
             }
 
             let mut list = NbtList::with_capacity(len);
-            for _ in 0 .. len {
-                list.push(read_tag_body(reader, type_id)?);
+
+            macro_rules! drive_reader {
+                ($($id:literal)*) => {
+                    match tag_id {
+                        $(
+                            $id => {
+                                for _ in 0 .. len {
+                                    list.push(read_tag_body_const::<_, $id>(reader)?);
+                                }
+                            },
+                        )*
+                        _ => return Err(NbtIoError::InvalidTagId(tag_id))
+                    }
+                };
             }
+        
+            drive_reader!(0x1 0x2 0x3 0x4 0x5 0x6 0x7 0x8 0x9 0xA 0xB 0xC);
 
             NbtTag::List(list)
         }
@@ -99,7 +127,7 @@ fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> 
             // Read until TAG_End
             while tag_id != 0x0 {
                 let name = raw::read_string(reader)?;
-                let tag = read_tag_body(reader, tag_id)?;
+                let tag = read_tag_body_dyn(reader, tag_id)?;
                 compound.insert(name, tag);
                 tag_id = raw::read_u8(reader)?;
             }
@@ -126,7 +154,7 @@ fn read_tag_body<R: Read>(reader: &mut R, id: u8) -> Result<NbtTag, NbtIoError> 
 
             NbtTag::LongArray(array)
         }
-        _ => return Err(NbtIoError::InvalidTagId(id)),
+        _ => unreachable!("read_tag_body_const called with unchecked TAG_ID"),
     };
 
     Ok(tag)

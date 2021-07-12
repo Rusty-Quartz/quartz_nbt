@@ -1,14 +1,12 @@
 //! This file, data.rs.in, and all files in benches/assets are from hematite_nbt:
 //! https://github.com/PistonDevelopers/hematite_nbt.
 
-#![feature(bench_black_box)]
-
 extern crate criterion;
 extern crate nbt;
 extern crate quartz_nbt;
 extern crate serde;
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput, black_box, SamplingMode};
 use nbt::{de::from_gzip_reader, ser::to_writer};
 use quartz_nbt::{
     io::{read_nbt, write_nbt, Flavor},
@@ -17,8 +15,8 @@ use quartz_nbt::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fs::File,
-    hint::black_box,
     io::{self, Read, Seek, SeekFrom},
+    time::Duration
 };
 
 mod data {
@@ -38,6 +36,7 @@ where T: DeserializeOwned + Serialize {
     let nbt_blob = nbt::Blob::from_gzip_reader(&mut file).unwrap();
 
     let mut group = c.benchmark_group(filename);
+    group.sampling_mode(SamplingMode::Flat);
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function("Hematite: Deserialize As Struct", |b| {
         b.iter(|| {
@@ -76,6 +75,7 @@ where T: DeserializeOwned + Serialize {
     let nbt_compound = read_nbt(&mut file, Flavor::GzCompressed).unwrap().0;
 
     let mut group = c.benchmark_group(filename);
+    group.sampling_mode(SamplingMode::Flat);
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function("Quartz: Deserialize As Struct", |b| {
         b.iter(|| {
@@ -118,5 +118,11 @@ fn bench(c: &mut Criterion) {
     quartz_bench::<data::Level>("benches/assets/level.dat", c);
 }
 
-criterion_group!(benches, bench);
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(500)
+        .warm_up_time(Duration::from_secs(1));
+    targets = bench
+}
 criterion_main!(benches);
