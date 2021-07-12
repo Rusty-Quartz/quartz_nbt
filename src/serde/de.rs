@@ -155,6 +155,7 @@ pub struct DeserializeTag<'a, R, const TAG_ID: u8> {
 }
 
 impl<'a, R: Read, const TAG_ID: u8> DeserializeTag<'a, R, TAG_ID> {
+    #[inline]
     fn new(reader: &'a mut R) -> DeserializeTag<'a, R, TAG_ID> {
         DeserializeTag { reader }
     }

@@ -3,7 +3,7 @@ mod ser;
 mod util;
 
 pub use de::Deserializer;
-pub use ser::Serializer;
+pub use ser::{Serializer, UncheckedSerializer};
 pub use util::Ser;
 
 use crate::io::{Flavor, NbtIoError};
@@ -27,6 +27,21 @@ pub fn serialize<T: Serialize>(
 ) -> Result<Vec<u8>, NbtIoError> {
     let mut cursor = Cursor::new(Vec::<u8>::new());
     serialize_into(&mut cursor, value, root_name, flavor)?;
+    Ok(cursor.into_inner())
+}
+
+/// Similar to [`serialize`], but elides homogeneity checks on sequential types.  This
+/// means that there are some `T` for which this method will write invalid NBT data to the
+/// given writer.
+///
+/// [`serialize`]: crate::serde::serialize
+pub fn serialize_unchecked<T: Serialize>(
+    value: &T,
+    root_name: Option<&str>,
+    flavor: Flavor,
+) -> Result<Vec<u8>, NbtIoError> {
+    let mut cursor = Cursor::new(Vec::<u8>::new());
+    serialize_into_unchecked(&mut cursor, value, root_name, flavor)?;
     Ok(cursor.into_inner())
 }
 
@@ -55,6 +70,40 @@ pub fn serialize_into<W: Write, T: Serialize>(
         ))
     } else {
         value.serialize(Serializer::new(
+            &mut ZlibEncoder::new(writer, compression),
+            root_name,
+        ))
+    }
+}
+
+/// Similar to [`serialize_into`], but elides checks for homogeneity on sequential types. This
+/// means that there are some `T` for which this method will write invalid NBT data to the
+/// given writer.
+///
+/// [`serialize_into`]: crate::serde::serialize_into
+pub fn serialize_into_unchecked<W: Write, T: Serialize>(
+    writer: &mut W,
+    value: &T,
+    root_name: Option<&str>,
+    flavor: Flavor,
+) -> Result<(), NbtIoError> {
+    let (mode, compression) = match flavor {
+        Flavor::Uncompressed => {
+            return value.serialize(UncheckedSerializer::new(writer, root_name));
+        }
+        Flavor::ZlibCompressed => (2, Compression::default()),
+        Flavor::ZlibCompressedWith(compression) => (2, compression),
+        Flavor::GzCompressed => (1, Compression::default()),
+        Flavor::GzCompressedWith(compression) => (1, compression),
+    };
+
+    if mode == 1 {
+        value.serialize(UncheckedSerializer::new(
+            &mut GzEncoder::new(writer, compression),
+            root_name,
+        ))
+    } else {
+        value.serialize(UncheckedSerializer::new(
             &mut ZlibEncoder::new(writer, compression),
             root_name,
         ))

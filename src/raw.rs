@@ -167,9 +167,9 @@ pub fn cast_byte_buf_to_signed(buf: Vec<u8>) -> Vec<i8> {
     let capacity = me.capacity();
 
     // Safety
-    // * ptr was allocated by a Vec
+    // * `ptr` was allocated by a Vec
     // * i8 has the same size and alignment as u8
-    // * length and capacity came from a valid Vec
+    // * `length` and `capacity` came from a valid Vec
     unsafe { Vec::from_raw_parts(ptr, length, capacity) }
 }
 
@@ -182,9 +182,9 @@ pub fn cast_byte_buf_to_unsigned(buf: Vec<i8>) -> Vec<u8> {
     let capacity = me.capacity();
 
     // Safety
-    // * ptr was allocated by a Vec
-    // * i8 has the same size and alignment as u8
-    // * length and capacity came from a valid Vec
+    // * `ptr` was allocated by a Vec
+    // * u8 has the same size and alignment as i8
+    // * `length` and `capacity` came from a valid Vec
     unsafe { Vec::from_raw_parts(ptr, length, capacity) }
 }
 
@@ -196,13 +196,13 @@ pub fn cast_bytes_to_signed<'a>(bytes: &'a [u8]) -> &'a [i8] {
     let len = bytes.len();
 
     // Safety
-    // * data is valid for len * 1 bytes
-    //     * The entire memory range of data is contained in a single
-    //       allocated object since it value from a vec
-    //     * data is non-null and aligned correctly for u8 (and thus i8)
-    // * data points to exactly len consecutive bytes
+    // * `data` is valid for len * 1 bytes
+    //     * The entire memory range of `data` is contained in a single
+    //       allocated object since it came from a valid slice
+    //     * `data` is non-null and aligned correctly for u8 (and thus i8)
+    // * `data` points to exactly `len` consecutive bytes
     // * The constructed reference adopts the lifetime of the provided reference
-    // * len <= isize::MAX because the slice originated from a Vec
+    // * `len` <= isize::MAX because `len` came from a valid slice
     unsafe { slice::from_raw_parts(data, len) }
 }
 
@@ -212,12 +212,12 @@ pub fn cast_bytes_to_unsigned<'a>(bytes: &'a [i8]) -> &'a [u8] {
     let len = bytes.len();
 
     // Safety
-    // * data is valid for len * 1 bytes
-    //     * The entire memory range of data is contained in a single
-    //       allocated object since it value from a vec
-    //     * data is non-null and aligned correctly for u8 (and thus i8)
-    // * data points to exactly len consecutive bytes
+    // * `data` is valid for len * 1 bytes
+    //     * The entire memory range of `data` is contained in a single
+    //       allocated object since it came from a valid slice
+    //     * `data` is non-null and aligned correctly for i8 (and thus u8)
+    // * `data` points to exactly `len` consecutive bytes
     // * The constructed reference adopts the lifetime of the provided reference
-    // * len <= isize::MAX because the slice originated from a Vec
+    // * `len` <= isize::MAX because `len` came from a valid slice
     unsafe { slice::from_raw_parts(data, len) }
 }

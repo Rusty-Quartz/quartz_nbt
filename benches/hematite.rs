@@ -12,7 +12,7 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use nbt::{de::from_gzip_reader, ser::to_writer};
 use quartz_nbt::{
     io::{read_nbt, write_nbt, Flavor},
-    serde::{deserialize_from, serialize_into},
+    serde::{deserialize_from, serialize_into_unchecked},
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
@@ -95,7 +95,8 @@ where T: DeserializeOwned + Serialize {
     });
     group.bench_function("Quartz: Serialize As Struct", |b| {
         b.iter(|| {
-            serialize_into(&mut io::sink(), &nbt_struct, None, Flavor::Uncompressed).unwrap();
+            serialize_into_unchecked(&mut io::sink(), &nbt_struct, None, Flavor::Uncompressed)
+                .unwrap();
         })
     });
     group.bench_function("Quartz: Serialize As Compound", |b| {

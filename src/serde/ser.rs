@@ -70,6 +70,7 @@ impl<'a, W: Write, S: TypeChecker> DefaultSerializer for SerializerImpl<'a, W, S
     type SerializeTupleVariant =
         SerializeList<'a, W, S, BorrowedPrefix<&'static str>, Unchecked, S, false>;
 
+    #[cold]
     fn unimplemented(self, _ty: &'static str) -> Self::Error {
         NbtIoError::MissingRootTag
     }
@@ -227,7 +228,6 @@ where
     Co: TypeChecker,
     Ci: TypeChecker,
 {
-    #[inline]
     fn new(
         writer: &'a mut W,
         outer_prefix: P,
@@ -479,6 +479,7 @@ where
     type SerializeTupleVariant =
         SerializeList<'a, W, S, BorrowedPrefix<&'static str>, Unchecked, S, false>;
 
+    #[cold]
     fn unimplemented(self, ty: &'static str) -> Self::Error {
         NbtIoError::UnsupportedType(ty)
     }
@@ -922,6 +923,7 @@ where
     type SerializeTupleVariant =
         SerializeList<'a, W, S, BorrowedPrefix<&'static str>, Unchecked, S, false>;
 
+    #[cold]
     fn unimplemented(self, ty: &'static str) -> Self::Error {
         NbtIoError::UnsupportedType(ty)
     }
@@ -1158,7 +1160,7 @@ impl<'a, W: Write> DefaultSerializer for SerializeKey<'a, W> {
     type SerializeTupleStruct = Impossible<Self::Ok, Self::Error>;
     type SerializeTupleVariant = Impossible<Self::Ok, Self::Error>;
 
-    #[inline]
+    #[cold]
     fn unimplemented(self, _ty: &'static str) -> Self::Error {
         NbtIoError::InvalidKey
     }
@@ -1204,6 +1206,7 @@ impl TypeChecker for Homogenous {
         }
     }
 
+    #[inline]
     fn verify(&self, tag_id: u8) -> Result<(), NbtIoError> {
         match self.id.get() {
             Some(id) =>
