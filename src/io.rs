@@ -115,7 +115,7 @@ fn read_tag_body_const<R: Read, const TAG_ID: u8>(reader: &mut R) -> Result<NbtT
                     }
                 };
             }
-        
+
             drive_reader!(0x1 0x2 0x3 0x4 0x5 0x6 0x7 0x8 0x9 0xA 0xB 0xC);
 
             NbtTag::List(list)

@@ -1,3 +1,4 @@
+#![cfg(feature = "serde")]
 //! This file, data.rs.in, and all files in benches/assets are from hematite_nbt:
 //! https://github.com/PistonDevelopers/hematite_nbt.
 
@@ -6,7 +7,7 @@ extern crate nbt;
 extern crate quartz_nbt;
 extern crate serde;
 
-use criterion::{criterion_group, criterion_main, Criterion, Throughput, black_box, SamplingMode};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 use nbt::{de::from_gzip_reader, ser::to_writer};
 use quartz_nbt::{
     io::{read_nbt, write_nbt, Flavor},
@@ -16,7 +17,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fs::File,
     io::{self, Read, Seek, SeekFrom},
-    time::Duration
+    time::Duration,
 };
 
 mod data {

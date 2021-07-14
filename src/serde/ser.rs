@@ -646,11 +646,14 @@ where
         T: Serialize,
     {
         if name == ARRAY_NEWTYPE_NAME_NICHE {
+            self.outer_type_checker.verify(0x9)?;
+            self.outer_prefix.write(self.writer, 0x9)?;
+
             value.serialize(
                 SerializeArray::<_, S, _, _>::new(
                     self.writer,
-                    self.outer_prefix,
-                    self.outer_type_checker,
+                    self.inner_prefix,
+                    self.inner_type_checker,
                 )
                 .into_serializer(),
             )
