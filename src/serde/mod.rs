@@ -31,8 +31,7 @@ pub fn serialize<T: Serialize>(
 }
 
 /// Similar to [`serialize`], but elides homogeneity checks on sequential types.  This
-/// means that there are some `T` for which this method will write invalid NBT data to the
-/// given writer.
+/// means that there are some `T` for which this method will return invalid NBT data.
 ///
 /// [`serialize`]: crate::serde::serialize
 pub fn serialize_unchecked<T: Serialize>(
