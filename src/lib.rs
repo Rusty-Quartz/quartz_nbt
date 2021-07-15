@@ -314,3 +314,69 @@ pub mod snbt;
 
 pub use repr::*;
 pub use tag::*;
+
+/// A utility macro for constructing `NbtCompound`s.
+///
+/// With exceptions for arrays and compounds, all keys and values must be well-formed rust
+/// expressions. The benefit of this is that local variables can be included in the generated
+/// compound.
+/// ```
+/// # use quartz_nbt::NbtCompound;
+/// let product = 87235i32 * 932i32;
+///
+/// let compound = quartz_nbt::compound! {
+///     "product": product,
+///     "foo": "bar"
+/// };
+///
+/// let mut manual_compound = NbtCompound::new();
+/// manual_compound.insert("product", 81303020i32);
+/// manual_compound.insert("foo", "bar");
+///
+/// assert_eq!(compound, manual_compound);
+/// ```
+///
+/// Similar to SNBT, the specialized array types can be opted-into with a type specifier:
+/// ```
+/// # use quartz_nbt::NbtTag;
+/// let compound = quartz_nbt::compound! {
+///     "byte_array": [B; 1, 2, 3],
+///     "int_array": [I; 4, 5, 6],
+///     "long_array": [L; 7, 8, 9],
+///     "tag_array": [10, 11, 12]
+/// };
+///
+/// assert!(matches!(compound.get::<_, &NbtTag>("byte_array"), Ok(NbtTag::ByteArray(_))));
+/// assert!(matches!(compound.get::<_, &NbtTag>("int_array"), Ok(NbtTag::IntArray(_))));
+/// assert!(matches!(compound.get::<_, &NbtTag>("long_array"), Ok(NbtTag::LongArray(_))));
+/// assert!(matches!(compound.get::<_, &NbtTag>("tag_array"), Ok(NbtTag::List(_))));
+///
+/// assert_eq!(
+///     compound.get::<_, &[i64]>("long_array")
+///         .unwrap()
+///         .iter()
+///         .copied()
+///         .sum::<i64>(),
+///     24
+/// );
+/// ```
+///
+/// Just like in JSON or SNBT, compounds are enclosed by braces:
+/// ```
+/// # use quartz_nbt::{NbtCompound, NbtList};
+/// let compound = quartz_nbt::compound! {
+///     "nested": {
+///         "a": [I;],
+///         "b": []
+///     }
+/// };
+///
+/// let mut outer = NbtCompound::new();
+/// let mut nested = NbtCompound::new();
+/// nested.insert("a", Vec::<i32>::new());
+/// nested.insert("b", NbtList::new());
+/// outer.insert("nested", nested);
+///
+/// assert_eq!(compound, outer);
+/// ```
+pub use quartz_nbt_macros::compound;

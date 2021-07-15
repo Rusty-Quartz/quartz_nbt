@@ -13,16 +13,17 @@ keywords = ["nbt", "minecraft", "data", "encode"]
 categories = ["encoding", "parser-implementations"]
 
 [dependencies]
-anyhow = "1.0.41"
-byteorder = "1.4.3"
-cesu8 = "1.1.0"
-flate2 = "1.0.20"
+quartz_nbt_macros = { path = "./macros" }
+anyhow = "1.0"
+byteorder = "1.4"
+cesu8 = "1.1"
+flate2 = "1.0"
 serde = { version = "1.0", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.3", features = ["html_reports"] }
 hematite-nbt = "0.5.2"
-once_cell = "1.8.0"
+once_cell = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 
 [[bench]]
