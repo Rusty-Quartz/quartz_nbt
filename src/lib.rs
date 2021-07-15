@@ -315,31 +315,40 @@ pub mod snbt;
 pub use repr::*;
 pub use tag::*;
 
-/// A utility macro for constructing `NbtCompound`s.
+/// A utility macro for constructing [`NbtCompound`]s.
 ///
 /// With exceptions for arrays and compounds, all keys and values must be well-formed rust
 /// expressions. The benefit of this is that local variables can be included in the generated
-/// compound.
+/// compound. If a local variable is of the type `Vec<T>`, then the generated code will try to
+/// convert the variable to an [`NbtTag`], which will fail unless `Vec<T>` maps onto a specialized
+/// array type. If it is desireable for the variable to serialize as a tag list, then it should be
+/// wrapped in [`NbtList`]`::from`.
 /// ```
-/// # use quartz_nbt::NbtCompound;
+/// # use quartz_nbt::{NbtCompound, NbtList, compound};
 /// let product = 87235i32 * 932i32;
+/// let byte_array = vec![0i8, 2, 4];
+/// let tag_list = byte_array.clone();
 ///
-/// let compound = quartz_nbt::compound! {
+/// let compound = compound! {
 ///     "product": product,
-///     "foo": "bar"
+///     "foo": "bar",
+///     "byte_array": byte_array,
+///     "tag_list": NbtList::from(tag_list)
 /// };
 ///
 /// let mut manual_compound = NbtCompound::new();
 /// manual_compound.insert("product", 81303020i32);
 /// manual_compound.insert("foo", "bar");
+/// manual_compound.insert("byte_array", vec![0i8, 2, 4]);
+/// manual_compound.insert("tag_list", NbtList::from(vec![0i8, 2, 4]));
 ///
 /// assert_eq!(compound, manual_compound);
 /// ```
 ///
-/// Similar to SNBT, the specialized array types can be opted-into with a type specifier:
+/// Similar to SNBT, constant specialized array types can be opted-into with a type specifier:
 /// ```
-/// # use quartz_nbt::NbtTag;
-/// let compound = quartz_nbt::compound! {
+/// # use quartz_nbt::{NbtTag, compound};
+/// let compound = compound! {
 ///     "byte_array": [B; 1, 2, 3],
 ///     "int_array": [I; 4, 5, 6],
 ///     "long_array": [L; 7, 8, 9],
@@ -363,8 +372,8 @@ pub use tag::*;
 ///
 /// Just like in JSON or SNBT, compounds are enclosed by braces:
 /// ```
-/// # use quartz_nbt::{NbtCompound, NbtList};
-/// let compound = quartz_nbt::compound! {
+/// # use quartz_nbt::{NbtCompound, NbtList, compound};
+/// let compound = compound! {
 ///     "nested": {
 ///         "a": [I;],
 ///         "b": []
@@ -379,4 +388,8 @@ pub use tag::*;
 ///
 /// assert_eq!(compound, outer);
 /// ```
+///
+/// [`NbtCompound`]: crate::NbtCompound
+/// [`NbtTag`]: crate::NbtTag
+/// [`NbtList`]: crate::NbtList
 pub use quartz_nbt_macros::compound;
