@@ -216,6 +216,7 @@ fn write_tag_body<W: Write>(writer: &mut W, tag: &NbtTag) -> Result<(), NbtIoErr
         &NbtTag::Float(value) => raw::write_f32(writer, value)?,
         &NbtTag::Double(value) => raw::write_f64(writer, value)?,
         NbtTag::ByteArray(value) => {
+            raw::write_i32(writer, value.len() as i32)?;
             writer.write_all(raw::cast_bytes_to_unsigned(value.as_slice()))?;
         }
         NbtTag::String(value) => raw::write_string(writer, value)?,
