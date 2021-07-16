@@ -3,6 +3,10 @@ name = "quartz_nbt_macros"
 version = "0.1.0"
 edition = "2018"
 
+description = "This crate contains the function-like procedural macro which parses quartz_nbt's compact compound format."
+repository = "https://github.com/Rusty-Quartz/quartz_nbt"
+license = "MIT"
+
 [lib]
 proc-macro = true
 
