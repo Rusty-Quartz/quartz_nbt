@@ -1,7 +1,7 @@
 #![warn(missing_docs)]
 
-//! This crate contains the function-like procedural macro which parses our compact compound
-//! format.
+//! This crate contains the function-like procedural macro which parses `quartz_nbt`'s compact
+//! compound format.
 
 use syn::{parse::Parse, parse_macro_input};
 
