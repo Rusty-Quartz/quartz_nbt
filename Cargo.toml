@@ -13,7 +13,7 @@ keywords = ["nbt", "minecraft", "data", "encode"]
 categories = ["encoding", "parser-implementations"]
 
 [dependencies]
-quartz_nbt_macros = { path = "./macros" }
+quartz_nbt_macros = { version = "0.1.0", path = "./macros" }
 anyhow = "1.0"
 byteorder = "1.4"
 cesu8 = "1.1"
