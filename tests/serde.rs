@@ -3,11 +3,11 @@
 mod assets;
 use assets::*;
 use quartz_nbt::{
+    compound,
     io::{self, Flavor},
     serde::{deserialize, serialize, Array},
     NbtCompound,
     NbtList,
-    NbtTag,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::Cursor};
@@ -158,22 +158,6 @@ fn level_dat() {
     assert_eq!(test_nbt, validate_nbt)
 }
 
-macro_rules! compound {
-    ($($key: ident: $value: expr),*) => {
-        {
-            let mut compound = NbtCompound::new();
-            $(compound.insert(stringify!($key), $value);)*
-            compound
-        }
-    };
-}
-
-macro_rules! list {
-    ($($value: expr),*) => {
-        NbtList::from(vec![$($value),*]);
-    };
-}
-
 #[test]
 fn basic_datatypes_serde() {
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -210,17 +194,17 @@ fn basic_datatypes_serde() {
     .unwrap()
     .0;
 
-    let validation_nbt = compound!(
-        boolean: NbtTag::Byte(1),
-        unsigned_byte: NbtTag::Byte(-82),
-        signed_byte: NbtTag::Byte(-12),
-        signed_short: NbtTag::Short(1212),
-        signed_int: NbtTag::Int(42),
-        signed_long: NbtTag::Long(69420),
-        float: NbtTag::Float(3.14159265),
-        double: NbtTag::Double(100.001),
-        string: NbtTag::String("Mario".to_owned())
-    );
+    let validation_nbt = compound! {
+        "boolean": 1i8,
+        "unsigned_byte": -82i8,
+        "signed_byte": -12i8,
+        "signed_short": 1212i16,
+        "signed_int": 42i32,
+        "signed_long": 69420i64,
+        "float": 3.14159265f32,
+        "double": 100.001f64,
+        "string": "Mario"
+    };
 
     assert_eq!(struct_nbt, validation_nbt);
 
@@ -267,15 +251,15 @@ fn complex_structs_serde() {
     .unwrap()
     .0;
 
-    let validation_nbt = compound!(
-        id: NbtTag::Byte(12),
-        bar: compound!(
-            a: NbtTag::Int(13),
-            b: NbtTag::Int(1990)
-        ),
-        a: NbtTag::Long(128),
-        b: list!(NbtTag::Byte(12), NbtTag::Byte(12), NbtTag::Byte(12))
-    );
+    let validation_nbt = compound! {
+        "id": 12i8,
+        "bar": {
+            "a": 13i32,
+            "b": 1990i32
+        },
+        "a": 128i64,
+        "b": [12i8, 12i8, 12i8]
+    };
 
     assert_eq!(struct_nbt, validation_nbt);
 
@@ -324,18 +308,21 @@ fn enum_serde() {
     .unwrap()
     .0;
 
-    let validation_nbt = compound!(
-        newtype: compound!(B: NbtTag::Short(-37)),
-        tuple: compound!(C: list!(NbtTag::Byte(-128), NbtTag::Byte(99), NbtTag::Byte(5))),
-        compound:
-            compound!(
-                D: compound!(
-                    e: NbtTag::String("string".to_owned()),
-                    f: NbtTag::Int(999)
-                )
-            ),
-        unit: NbtTag::Int(4)
-    );
+    let validation_nbt = compound! {
+        "newtype": {
+            "B": -37i16
+        },
+        "tuple": {
+            "C": [-128i8, 99i8, 5i8]
+        },
+        "compound": {
+            "D": {
+                "e": "string",
+                "f": 999i32
+            }
+        },
+        "unit": 4i32
+    };
 
     assert_eq!(struct_nbt, validation_nbt);
 
@@ -371,12 +358,12 @@ fn array_serde() {
     .unwrap()
     .0;
 
-    let validation_nbt = compound!(
-        byte_array: NbtTag::ByteArray(vec![12, 13, 14]),
-        byte_array2: NbtTag::ByteArray(vec![51, 32, 99]),
-        int_array: NbtTag::IntArray(vec![120, 99999, 12]),
-        long_array: NbtTag::LongArray(vec![2122, 121212, 6666666])
-    );
+    let validation_nbt = compound! {
+        "byte_array": [B; 12, 13, 14],
+        "byte_array2": [B; 51, 32, 99],
+        "int_array": [I; 120, 99999, 12],
+        "long_array": [L; 2122, 121212, 6666666]
+    };
 
     assert_eq!(struct_nbt, validation_nbt);
 
@@ -403,6 +390,14 @@ fn vec_serde() {
         nested_arr: Vec<Array<Vec<Array<Vec<i8>>>>>,
         enumeration_arr: Array<Vec<Enumeration>>,
         enum_of_vec: Enumeration,
+        empty_byte_array: Array<Vec<i8>>,
+        empty_int_array: Array<Vec<i32>>,
+        empty_long_array: Array<Vec<i64>>,
+        empty_tag_list: Vec<()>,
+        seq_empty_byte_array: Vec<Array<Vec<i8>>>,
+        seq_empty_int_array: Vec<Array<Vec<i32>>>,
+        seq_empty_long_array: Vec<Array<Vec<i64>>>,
+        seq_empty_tag_list: Vec<Vec<()>>,
     }
 
     #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -443,6 +438,14 @@ fn vec_serde() {
         ],
         enumeration_arr: vec![Enumeration::A, Enumeration::C, Enumeration::E].into(),
         enum_of_vec: Enumeration::G(vec![vec![Bar { a: 13 }, Bar { a: 9 }], vec![Bar { a: 14 }]]),
+        empty_byte_array: Vec::new().into(),
+        empty_int_array: Vec::new().into(),
+        empty_long_array: Vec::new().into(),
+        empty_tag_list: Vec::new(),
+        seq_empty_byte_array: vec![Vec::new().into(), Vec::new().into()],
+        seq_empty_int_array: vec![Vec::new().into(), Vec::new().into()],
+        seq_empty_long_array: vec![Vec::new().into(), Vec::new().into()],
+        seq_empty_tag_list: vec![Vec::new(), Vec::new()],
     };
 
     let serialized_struct = serialize(&test_struct, None, Flavor::Uncompressed).unwrap();
@@ -453,47 +456,79 @@ fn vec_serde() {
     .unwrap()
     .0;
 
-    let validation_nbt = compound!(
-        bar: list![compound!(a: NbtTag::Int(32)), compound!(a: NbtTag::Int(99))],
-        strings:
-            list![
-                NbtTag::String("test".to_owned()),
-                NbtTag::String("test test test".to_owned())
+    let validation_nbt = compound! {
+        "bar": [
+            {
+                "a": 32i32
+            },
+            {
+                "a": 99i32
+            }
+        ],
+        "strings": ["test", "test test test"],
+        "baz": [99i8, 42i8, 88i8],
+        "tuple": [
+            [343i16, 89i16, 102i16],
+            [33i16, 897i16, 457i16]
+        ],
+        "bar_arr": [
+            {
+                "a": 35i32
+            }
+        ],
+        "strings_arr": ["tteesstt"],
+        "enumeration": [0i32, 1i32, 4i32],
+        "mixed_enumeration": [
+            {
+                "D": 12i8
+            },
+            {
+                "F": {
+                    "a": 14i16
+                }
+            }
+        ],
+        "baz_arr": [B; 52],
+        "tuple_arr": [
+            [12i16, 12i16, 12i16]
+        ],
+        "nested_arr": [
+            [
+                [B; 1, 20, 9]
             ],
-        baz: list![NbtTag::Byte(99), NbtTag::Byte(42), NbtTag::Byte(88)],
-        tuple:
-            list![
-                list![NbtTag::Short(343), NbtTag::Short(89), NbtTag::Short(102)],
-                list![NbtTag::Short(33), NbtTag::Short(897), NbtTag::Short(457)]
-            ],
-        bar_arr: list![compound!(a: NbtTag::Int(35))],
-        strings_arr: list![NbtTag::String("tteesstt".to_owned())],
-        enumeration: list![NbtTag::Int(0), NbtTag::Int(1), NbtTag::Int(4)],
-        mixed_enumeration:
-            list![
-                compound!(D: NbtTag::Byte(12)),
-                compound!(F: compound!(a: NbtTag::Short(14)))
-            ],
-        baz_arr: NbtTag::ByteArray(vec![52]),
-        tuple_arr:
-            list![list![
-                NbtTag::Short(12),
-                NbtTag::Short(12),
-                NbtTag::Short(12)
-            ]],
-        nested_arr:
-            list![list![NbtTag::ByteArray(vec![1, 20, 9])], list![
-                NbtTag::ByteArray(vec![3, 5, 10]),
-                NbtTag::ByteArray(vec![99, 10, 32])
-            ]],
-        enumeration_arr: NbtTag::IntArray(vec![0, 2, 4]),
-        enum_of_vec:
-            compound!(
-                G: list![list![compound!(a: 13), compound!(a: 9)], list![
-                    compound!(a: 14)
-                ]]
-            )
-    );
+            [
+                [B; 3, 5, 10],
+                [B; 99, 10, 32]
+            ]
+        ],
+        "enumeration_arr": [I; 0, 2, 4],
+        "enum_of_vec": {
+            "G": [
+                [
+                    {
+                        "a": 13i32
+                    },
+                    {
+                        "a": 9i32
+                    }
+                ],
+                [
+                    {
+                        "a": 14
+                    }
+                ]
+            ]
+        },
+        // Make sure all empty lists coerce to the same type
+        "empty_byte_array": [],
+        "empty_int_array": [],
+        "empty_long_array": [],
+        "empty_tag_list": [],
+        "seq_empty_byte_array": [[], []],
+        "seq_empty_int_array": [[], []],
+        "seq_empty_long_array": [[], []],
+        "seq_empty_tag_list": [[], []],
+    };
 
     assert_eq!(nbt_struct, validation_nbt);
 
@@ -548,18 +583,18 @@ fn option_serde() {
     .unwrap()
     .0;
 
-    let validation_nbt = compound!(
-        a: NbtTag::Byte(0),
-        b: NbtTag::String("option".to_owned()),
-        d: NbtTag::ByteArray(vec![21, 42, 15]),
-        e: compound!(
-            a: NbtTag::Byte(12)
-        ),
-        f: compound!(
-            A: NbtTag::Short(13)
-        ),
-        g: list![NbtTag::Byte(21), NbtTag::Byte(98)]
-    );
+    let validation_nbt = compound! {
+        "a": 0i8,
+        "b": "option",
+        "d": [B; 21, 42, 15],
+        "e": {
+            "a": 12i8
+        },
+        "f": {
+            "A": 13i16
+        },
+        "g": [21i8, 98i8]
+    };
 
     assert_eq!(struct_nbt, validation_nbt);
 

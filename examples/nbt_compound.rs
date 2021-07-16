@@ -1,4 +1,4 @@
-use quartz_nbt::{NbtCompound, NbtList, NbtTag};
+use quartz_nbt::{compound, NbtCompound, NbtList, NbtTag};
 
 fn main() {
     // All NbtTags are stored in NbtCompounds
@@ -14,4 +14,13 @@ fn main() {
 
     // NbtCompound::display will convert the compound tag to snbt
     println!("{}", nbt);
+
+    // Alternatively, you can do the same as the above with our handy `compound!` macro
+    let macro_nbt = compound! {
+        "int": 128i32,
+        "byte": 42u8,
+        "list": ["string 1", "string 2"]
+    };
+
+    assert_eq!(macro_nbt, nbt);
 }

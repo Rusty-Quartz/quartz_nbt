@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use once_cell::sync::Lazy;
-use quartz_nbt::{io::Flavor, NbtCompound, compound};
+use quartz_nbt::{compound, io::Flavor, NbtCompound};
 
 pub const BIG_TEST: &[u8] = include_bytes!("bigtest.nbt");
 pub const BIG_TEST_FLAVOR: Flavor = Flavor::GzCompressed;

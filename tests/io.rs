@@ -1,8 +1,8 @@
 mod assets;
 use assets::*;
 use quartz_nbt::{
+    compound,
     io::{self, read_nbt, write_nbt, Flavor},
-    NbtCompound,
     NbtList,
 };
 use std::io::Cursor;
@@ -28,29 +28,26 @@ fn player_nan_value() {
 
 #[test]
 fn writing_nbt() {
-    let mut nbt = NbtCompound::new();
-    nbt.insert("byte", 12_i8);
-    nbt.insert("short", 32_i16);
-    nbt.insert("int", 512_i32);
-    nbt.insert("long", 1024_i64);
-    nbt.insert("float", 12.99_f32);
-    nbt.insert("double", 1212.0101_f64);
-    nbt.insert("string", "test");
-    nbt.insert("list", NbtList::from(vec!["a", "b", "c"]));
-    nbt.insert(
-        "compound_list",
-        NbtList::from(vec![NbtCompound::new(), NbtCompound::new()]),
-    );
-    nbt.insert("byte_array", vec![1_i8, 2, 3, 4]);
-    nbt.insert("int_array", vec![1_i32, 3, 5, 7]);
-    nbt.insert("long_array", vec![1_i64, 9, 81]);
-    let mut test_tag = NbtCompound::new();
-    test_tag.insert("test", 12_i8);
-    nbt.insert("compound", test_tag);
+    let nbt = compound! {
+        "byte": 12i8,
+        "short": 32i16,
+        "int": 512i32,
+        "long": 1024i64,
+        "float": 12.99f32,
+        "double": 1212.0101f64,
+        "string": "test",
+        "list": ["a", "b", "c"],
+        "compound_list": [{}, {}],
+        "byte_array": [B; 1, 2, 3, 4],
+        "int_array": [I; 1, 3, 5, 7],
+        "long_array": [L; 1, 9, 81],
+        "compound": {
+            "test": 12i8
+        }
+    };
 
     let mut bytes = Vec::new();
     write_nbt(&mut bytes, None, &nbt, Flavor::Uncompressed).unwrap();
-    println!("{:02X?}", bytes);
 
     let read_nbt = read_nbt(&mut Cursor::new(bytes), Flavor::Uncompressed)
         .unwrap()
