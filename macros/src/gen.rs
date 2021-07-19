@@ -1,11 +1,24 @@
+use std::collections::HashSet;
+
 use crate::parse::{Compound, KeyValuePair, Value};
 use proc_macro2::{Literal, TokenStream};
 use quote::{quote, ToTokens};
+use syn::Error;
 
 pub fn gen_compound_expr(compound: &Compound) -> TokenStream {
+    let mut used_keys: HashSet<String> = HashSet::new();
     let inserts = compound.iter().map(|KeyValuePair { key, value, .. }| {
-        quote! {
-            __compound.insert(#key, #value);
+        let key_string = key.value();
+
+        if used_keys.contains(&key_string) {
+            let error = Error::new_spanned(key, "Duplicate key").to_compile_error();
+            quote! { #error }
+        } else {
+            used_keys.insert(key_string);
+            
+            quote! {
+                __compound.insert(#key, #value);
+            }
         }
     });
 

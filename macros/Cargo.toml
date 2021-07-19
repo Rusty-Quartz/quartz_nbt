@@ -1,6 +1,6 @@
 [package]
 name = "quartz_nbt_macros"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 
 description = "This crate contains the function-like procedural macro which parses quartz_nbt's compact compound format."
