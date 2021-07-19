@@ -8,9 +8,10 @@ use quartz_nbt::{
     serde::{deserialize, serialize, Array},
     NbtCompound,
     NbtList,
+    NbtTag,
 };
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::Cursor};
+use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
+use std::{collections::HashMap, convert::TryInto, io::Cursor};
 
 #[derive(Serialize, Deserialize, PartialEq)]
 struct Level {
@@ -340,6 +341,10 @@ fn array_serde() {
         byte_array2: Array<Vec<i8>>,
         int_array: Array<Vec<i32>>,
         long_array: Array<Vec<i64>>,
+        prim_byte_array: Array<[u8; 3]>,
+        prim_byte_array2: Array<[i8; 3]>,
+        prim_int_array: Array<[i32; 3]>,
+        prim_long_array: Array<[i64; 3]>,
     }
 
     let test_struct = Foo {
@@ -347,6 +352,10 @@ fn array_serde() {
         byte_array2: vec![51, 32, 99].into(),
         int_array: vec![120, 99999, 12].into(),
         long_array: vec![2122, 121212, 6666666].into(),
+        prim_byte_array: [0u8, 1, 2].into(),
+        prim_byte_array2: [-1i8, -10, -128].into(),
+        prim_int_array: [5i32, -10, 20].into(),
+        prim_long_array: [i64::MIN, i64::MAX, 0].into(),
     };
 
     let serialized_struct = serialize(&test_struct, None, Flavor::Uncompressed).unwrap();
@@ -362,7 +371,11 @@ fn array_serde() {
         "byte_array": [B; 12, 13, 14],
         "byte_array2": [B; 51, 32, 99],
         "int_array": [I; 120, 99999, 12],
-        "long_array": [L; 2122, 121212, 6666666]
+        "long_array": [L; 2122, 121212, 6666666],
+        "prim_byte_array": [B; 0, 1, 2],
+        "prim_byte_array2": [B; -1, -10, -128],
+        "prim_int_array": [I; 5, -10, 20],
+        "prim_long_array": [L; i64::MIN, i64::MAX, 0]
     };
 
     assert_eq!(struct_nbt, validation_nbt);
@@ -371,6 +384,166 @@ fn array_serde() {
         .unwrap()
         .0;
     assert_eq!(deserialized_struct, test_struct);
+
+    // Wrapper to ensure we test the `serialize_bytes` method
+    struct Bytes<'a>(&'a [u8]);
+
+    impl<'a> Serialize for Bytes<'a> {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: serde::Serializer {
+            serializer.serialize_bytes(&self.0)
+        }
+    }
+
+    // Wrapper to ensure that we test the `deserialize_byte_buf` method
+    struct ByteBuf(Vec<u8>);
+
+    impl<'de> Deserialize<'de> for ByteBuf {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: serde::Deserializer<'de> {
+            struct ByteBufVisitor;
+
+            impl<'de> Visitor<'de> for ByteBufVisitor {
+                type Value = Vec<u8>;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    write!(formatter, "A byte buf")
+                }
+
+                fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
+                where E: serde::de::Error {
+                    Ok(v)
+                }
+            }
+
+            Ok(ByteBuf(deserializer.deserialize_byte_buf(ByteBufVisitor)?))
+        }
+    }
+
+    // Large arrays aren't incorporated into the serde data model by default, so we need to handle
+    // them manually
+    #[derive(PartialEq, Eq, Debug)]
+    struct SerAsSlice {
+        large_byte_array: Box<[u8; 1024]>,
+        large_int_array: Box<[i32; 256]>,
+    }
+
+    impl Serialize for SerAsSlice {
+        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: serde::Serializer {
+            let mut serialize_struct = serializer.serialize_struct("SerAsSlice", 2)?;
+            let bytes: &[u8] = &*self.large_byte_array;
+            // Ensure that we call the `serialize_bytes` method
+            serialize_struct.serialize_field("large_byte_array", &Bytes(bytes))?;
+            let slice: &[i32] = &*self.large_int_array;
+            serialize_struct.serialize_field("large_int_array", &Array::from(slice))?;
+            serialize_struct.end()
+        }
+    }
+
+    // Quick and dirty implementation since we test structs elsewhere
+    impl<'de> Deserialize<'de> for SerAsSlice {
+        fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where D: serde::Deserializer<'de> {
+            struct SerAsSliceVisitor;
+
+            impl<'de> Visitor<'de> for SerAsSliceVisitor {
+                type Value = SerAsSlice;
+
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "Things")
+                }
+
+                fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+                where A: serde::de::MapAccess<'de> {
+                    let mut large_byte_array: Option<Box<[u8; 1024]>> = None;
+                    let mut large_int_array: Option<Box<[i32; 256]>> = None;
+
+                    // Quick and dirty implementation since we test structs elsewhere
+                    while let Some(key) = map.next_key::<String>()? {
+                        match key.as_str() {
+                            "large_byte_array" => {
+                                assert!(
+                                    large_byte_array.is_none(),
+                                    "large_byte_array deserialized twice"
+                                );
+                                let bytes: ByteBuf = map.next_value()?;
+                                large_byte_array = Some(Box::new(
+                                    bytes
+                                        .0
+                                        .try_into()
+                                        .expect("large_byte_array has incorrect length"),
+                                ));
+                            }
+                            "large_int_array" => {
+                                assert!(
+                                    large_int_array.is_none(),
+                                    "large_int_array deserialized twice"
+                                );
+                                let arr: Vec<i32> = map.next_value()?;
+                                large_int_array = Some(Box::new(
+                                    arr.try_into()
+                                        .expect("large_int_array has incorrect length"),
+                                ));
+                            }
+                            _ => panic!("Invalid key: {}", key),
+                        }
+                    }
+
+                    Ok(SerAsSlice {
+                        large_byte_array: large_byte_array.expect("large_byte_array missing"),
+                        large_int_array: large_int_array.expect("large_int_array missing"),
+                    })
+                }
+            }
+
+            let ser_as_slice = deserializer.deserialize_struct(
+                "SerAsSlice",
+                &["large_byte_array", "large_int_array"],
+                SerAsSliceVisitor,
+            )?;
+            Ok(ser_as_slice)
+        }
+    }
+
+    let large_byte_array: Vec<_> = (0 .. 1024).map(|i| ((i * 7 + 13) % 255) as u8).collect();
+    let large_int_array: Vec<_> = (0 .. 256).collect();
+
+    let ser_as_slice = SerAsSlice {
+        large_byte_array: Box::new(large_byte_array.clone().try_into().unwrap()),
+        large_int_array: Box::new(large_int_array.clone().try_into().unwrap()),
+    };
+
+    let serialized_struct = serialize(&ser_as_slice, None, Flavor::Uncompressed).unwrap();
+
+    let struct_nbt = io::read_nbt(
+        &mut Cursor::new(serialized_struct.clone()),
+        Flavor::Uncompressed,
+    )
+    .unwrap()
+    .0;
+
+    let validation_nbt = compound! {
+        "large_byte_array": large_byte_array,
+        "large_int_array": large_int_array
+    };
+
+    // Ensure the validation nbt is valid
+    assert!(matches!(
+        validation_nbt.get::<_, &NbtTag>("large_byte_array"),
+        Ok(NbtTag::ByteArray(_))
+    ));
+    assert!(matches!(
+        validation_nbt.get::<_, &NbtTag>("large_int_array"),
+        Ok(NbtTag::IntArray(_))
+    ));
+
+    assert_eq!(struct_nbt, validation_nbt);
+
+    let deserialized_struct: SerAsSlice = deserialize(&serialized_struct, Flavor::Uncompressed)
+        .unwrap()
+        .0;
+    assert_eq!(deserialized_struct, ser_as_slice);
 }
 
 #[test]

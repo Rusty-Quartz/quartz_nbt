@@ -14,6 +14,8 @@ use flate2::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    borrow::{Borrow, BorrowMut},
+    convert::{AsMut, AsRef},
     io::{Cursor, Read, Write},
     marker::PhantomData,
 };
@@ -144,8 +146,8 @@ pub(crate) const ARRAY_NEWTYPE_NAME_NICHE: &str = "__quartz_nbt_array";
 
 /// A transparent wrapper around sequential types to allow the NBT serializer to automatically
 /// select an appropriate array type, favoring specialized array types like [`IntArray`] and
-/// [`ByteArray`]. Currently this type can only wrap vectors, however tuples may be supported
-/// in the future.
+/// [`ByteArray`]. Currently this type can only wrap vectors, slices, and arrays, however
+/// homogenous tuples may be supported in the future.
 ///
 /// [`IntArray`]: crate::NbtTag::IntArray
 /// [`ByteArray`]: crate::NbtTag::ByteArray
@@ -156,12 +158,14 @@ pub struct Array<T>(pub(crate) T);
 
 impl<T> Array<T> {
     /// Returns the inner value wrapped by this type.
-    pub fn into_inner(self) -> T {
-        self.0
+    #[inline]
+    pub fn into_inner(array: Self) -> T {
+        array.0
     }
 }
 
 impl<T: Serialize> Serialize for Array<T> {
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: serde::Serializer {
         serializer.serialize_newtype_struct(ARRAY_NEWTYPE_NAME_NICHE, &self.0)
@@ -169,6 +173,7 @@ impl<T: Serialize> Serialize for Array<T> {
 }
 
 impl<'de, T: Deserialize<'de>> Deserialize<'de> for Array<T> {
+    #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where D: serde::Deserializer<'de> {
         struct Visitor<T>(PhantomData<T>);
@@ -190,14 +195,72 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Array<T> {
     }
 }
 
+impl<T> AsRef<T> for Array<T> {
+    #[inline]
+    fn as_ref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> AsMut<T> for Array<T> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+impl<T> Borrow<T> for Array<T> {
+    #[inline]
+    fn borrow(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> BorrowMut<T> for Array<T> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
 impl<T> From<Vec<T>> for Array<Vec<T>> {
+    #[inline]
     fn from(value: Vec<T>) -> Self {
         Array(value)
     }
 }
 
 impl<T> From<Array<Vec<T>>> for Vec<T> {
+    #[inline]
     fn from(array: Array<Vec<T>>) -> Self {
+        array.0
+    }
+}
+
+impl<T, const LEN: usize> From<[T; LEN]> for Array<[T; LEN]> {
+    #[inline]
+    fn from(value: [T; LEN]) -> Self {
+        Array(value)
+    }
+}
+
+impl<T, const LEN: usize> From<Array<[T; LEN]>> for [T; LEN] {
+    #[inline]
+    fn from(array: Array<[T; LEN]>) -> Self {
+        array.0
+    }
+}
+
+impl<'a, T> From<&'a [T]> for Array<&'a [T]> {
+    #[inline]
+    fn from(value: &'a [T]) -> Self {
+        Array(value)
+    }
+}
+
+impl<'a, T> From<Array<&'a [T]>> for &'a [T] {
+    #[inline]
+    fn from(array: Array<&'a [T]>) -> Self {
         array.0
     }
 }

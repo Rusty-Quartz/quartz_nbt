@@ -175,18 +175,18 @@ where
     type Error = NbtIoError;
     type Ok = ();
     type SerializeMap = Impossible<Self::Ok, Self::Error>;
-    // Since we currently only support wrapping Vecs in Array, we can get away with unchecked
-    // sequential serialization
+    // Since we currently only support wrapping homogenous sequences in Array, we can get away
+    // with unchecked sequential serialization
     type SerializeSeq = SerializeList<'a, W, S, P, C, Unchecked, true>;
     type SerializeStruct = Impossible<Self::Ok, Self::Error>;
     type SerializeStructVariant = Impossible<Self::Ok, Self::Error>;
-    type SerializeTuple = Impossible<Self::Ok, Self::Error>;
-    type SerializeTupleStruct = Impossible<Self::Ok, Self::Error>;
+    type SerializeTuple = Self::SerializeSeq;
+    type SerializeTupleStruct = Self::SerializeSeq;
     type SerializeTupleVariant = Impossible<Self::Ok, Self::Error>;
 
     #[cold]
     fn unimplemented(self, _ty: &'static str) -> Self::Error {
-        panic!("Array<T> wrapper incorrectly called on non-sequential type")
+        panic!("Array<T> wrapper incorrectly used on non-sequential type")
     }
 
     #[inline]
@@ -207,6 +207,20 @@ where
             self.outer_type_checker,
             len as i32,
         )
+    }
+
+    #[inline]
+    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        self.serialize_seq(Some(len))
+    }
+
+    #[inline]
+    fn serialize_tuple_struct(
+        self,
+        _name: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleStruct, Self::Error> {
+        self.serialize_seq(Some(len))
     }
 }
 
