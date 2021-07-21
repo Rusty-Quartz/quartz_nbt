@@ -1,7 +1,10 @@
+mod array;
 mod de;
 mod ser;
 mod util;
 
+pub use array::Array;
+pub(crate) use array::{TypeHint, TYPE_HINT_NICHE};
 pub use de::Deserializer;
 pub use ser::{Serializer, UncheckedSerializer};
 pub use util::Ser;
@@ -12,12 +15,10 @@ use flate2::{
     write::{GzEncoder, ZlibEncoder},
     Compression,
 };
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
-    borrow::{Borrow, BorrowMut},
-    convert::{AsMut, AsRef},
+    borrow::Cow,
     io::{Cursor, Read, Write},
-    marker::PhantomData,
 };
 
 /// Serializes the given value as binary NBT data, returning the resulting Vec. The value must
@@ -46,8 +47,10 @@ pub fn serialize_unchecked<T: Serialize>(
     Ok(cursor.into_inner())
 }
 
-/// Serializes the given value as binary NBT data, writing to the given writer. The value must
-/// be a struct or non-unit enum variant, else the serializer will return with an error.
+/// Serializes the given value as binary NBT data, writing to the given writer.
+///
+/// The value must be a struct or non-unit enum variant, else the serializer will return with an
+/// error.
 pub fn serialize_into<W: Write, T: Serialize>(
     writer: &mut W,
     value: &T,
@@ -111,18 +114,35 @@ pub fn serialize_into_unchecked<W: Write, T: Serialize>(
     }
 }
 
-/// Deserializes the given type from binary NBT data. The NBT data must start with a compound tag
-/// and represent the type `T` correctly, else the deserializer will return with an error.
-pub fn deserialize<'de, T: Deserialize<'de>>(
+/// Deserializes the given type from uncompressed, binary NBT data, allowing for the type to borrow
+/// from the given buffer.
+///
+/// The NBT data must be uncompressed, start with a compound tag, and represent the type `T`
+/// correctly, else the deserializer will return with an error.
+pub fn deserialize_from_buffer<'de, T: Deserialize<'de>>(
+    buffer: &'de [u8],
+) -> Result<(T, Cow<'de, str>), NbtIoError> {
+    let mut cursor = Cursor::new(buffer);
+    let (de, root_name) = Deserializer::from_cursor(&mut cursor)?;
+    Ok((T::deserialize(de)?, root_name))
+}
+
+/// Deserializes the given type from binary NBT data.
+///
+/// The NBT data must start with a compound tag and represent the type `T` correctly, else the
+/// deserializer will return with an error.
+pub fn deserialize<T: DeserializeOwned>(
     bytes: &[u8],
     flavor: Flavor,
 ) -> Result<(T, String), NbtIoError> {
     deserialize_from(&mut Cursor::new(bytes), flavor)
 }
 
-/// Deserializes the given type from binary NBT data read from the given reader.  The NBT data must
-/// start with a compound tag and represent the type `T` correctly, else the deserializer will return with an error.
-pub fn deserialize_from<'de, R: Read, T: Deserialize<'de>>(
+/// Deserializes the given type from binary NBT data read from the given reader.
+///
+/// The NBT data must start with a compound tag and represent the type `T` correctly, else the
+/// deserializer will return with an error.
+pub fn deserialize_from<R: Read, T: DeserializeOwned>(
     reader: &mut R,
     flavor: Flavor,
 ) -> Result<(T, String), NbtIoError> {
@@ -135,132 +155,9 @@ pub fn deserialize_from<'de, R: Read, T: Deserialize<'de>>(
     }
 }
 
-fn deserialize_from_raw<'de, R: Read, T: Deserialize<'de>>(
-    reader: &mut R,
+fn deserialize_from_raw<'de: 'a, 'a, R: Read, T: Deserialize<'de>>(
+    reader: &'a mut R,
 ) -> Result<(T, String), NbtIoError> {
     let (de, root_name) = Deserializer::new(reader)?;
     Ok((T::deserialize(de)?, root_name))
-}
-
-pub(crate) const ARRAY_NEWTYPE_NAME_NICHE: &str = "__quartz_nbt_array";
-
-/// A transparent wrapper around sequential types to allow the NBT serializer to automatically
-/// select an appropriate array type, favoring specialized array types like [`IntArray`] and
-/// [`ByteArray`]. Currently this type can only wrap vectors, slices, and arrays, however
-/// homogenous tuples may be supported in the future.
-///
-/// [`IntArray`]: crate::NbtTag::IntArray
-/// [`ByteArray`]: crate::NbtTag::ByteArray
-// TODO: consider supporting homogenous tuples
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct Array<T>(pub(crate) T);
-
-impl<T> Array<T> {
-    /// Returns the inner value wrapped by this type.
-    #[inline]
-    pub fn into_inner(array: Self) -> T {
-        array.0
-    }
-}
-
-impl<T: Serialize> Serialize for Array<T> {
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: serde::Serializer {
-        serializer.serialize_newtype_struct(ARRAY_NEWTYPE_NAME_NICHE, &self.0)
-    }
-}
-
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Array<T> {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: serde::Deserializer<'de> {
-        struct Visitor<T>(PhantomData<T>);
-
-        impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for Visitor<T> {
-            type Value = Array<T>;
-
-            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "A newtype struct type")
-            }
-
-            fn visit_newtype_struct<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-            where D: serde::Deserializer<'de> {
-                Ok(Array(Deserialize::deserialize(deserializer)?))
-            }
-        }
-
-        deserializer.deserialize_newtype_struct(ARRAY_NEWTYPE_NAME_NICHE, Visitor(PhantomData))
-    }
-}
-
-impl<T> AsRef<T> for Array<T> {
-    #[inline]
-    fn as_ref(&self) -> &T {
-        &self.0
-    }
-}
-
-impl<T> AsMut<T> for Array<T> {
-    #[inline]
-    fn as_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-}
-
-impl<T> Borrow<T> for Array<T> {
-    #[inline]
-    fn borrow(&self) -> &T {
-        &self.0
-    }
-}
-
-impl<T> BorrowMut<T> for Array<T> {
-    #[inline]
-    fn borrow_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-}
-
-impl<T> From<Vec<T>> for Array<Vec<T>> {
-    #[inline]
-    fn from(value: Vec<T>) -> Self {
-        Array(value)
-    }
-}
-
-impl<T> From<Array<Vec<T>>> for Vec<T> {
-    #[inline]
-    fn from(array: Array<Vec<T>>) -> Self {
-        array.0
-    }
-}
-
-impl<T, const LEN: usize> From<[T; LEN]> for Array<[T; LEN]> {
-    #[inline]
-    fn from(value: [T; LEN]) -> Self {
-        Array(value)
-    }
-}
-
-impl<T, const LEN: usize> From<Array<[T; LEN]>> for [T; LEN] {
-    #[inline]
-    fn from(array: Array<[T; LEN]>) -> Self {
-        array.0
-    }
-}
-
-impl<'a, T> From<&'a [T]> for Array<&'a [T]> {
-    #[inline]
-    fn from(value: &'a [T]) -> Self {
-        Array(value)
-    }
-}
-
-impl<'a, T> From<Array<&'a [T]>> for &'a [T] {
-    #[inline]
-    fn from(array: Array<&'a [T]>) -> Self {
-        array.0
-    }
 }

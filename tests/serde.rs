@@ -5,7 +5,7 @@ use assets::*;
 use quartz_nbt::{
     compound,
     io::{self, Flavor},
-    serde::{deserialize, serialize, Array},
+    serde::{deserialize, deserialize_from_buffer, serialize, Array},
     NbtCompound,
     NbtList,
     NbtTag,
@@ -436,7 +436,8 @@ fn array_serde() {
             // Ensure that we call the `serialize_bytes` method
             serialize_struct.serialize_field("large_byte_array", &Bytes(bytes))?;
             let slice: &[i32] = &*self.large_int_array;
-            serialize_struct.serialize_field("large_int_array", &Array::from(slice))?;
+            let arr: Array<&[i32]> = Array::from(slice);
+            serialize_struct.serialize_field("large_int_array", &arr)?;
             serialize_struct.end()
         }
     }
@@ -556,12 +557,7 @@ fn vec_serde() {
         tuple: Vec<Tuple>,
         enumeration: Vec<Enumeration>,
         mixed_enumeration: Vec<Enumeration>,
-        bar_arr: Array<Vec<Bar>>,
-        strings_arr: Array<Vec<String>>,
-        baz_arr: Array<Vec<Baz>>,
-        tuple_arr: Array<Vec<Tuple>>,
-        nested_arr: Vec<Array<Vec<Array<Vec<i8>>>>>,
-        enumeration_arr: Array<Vec<Enumeration>>,
+        nested_arr: Vec<Vec<Array<Vec<i8>>>>,
         enum_of_vec: Enumeration,
         empty_byte_array: Array<Vec<i8>>,
         empty_int_array: Array<Vec<i32>>,
@@ -595,21 +591,16 @@ fn vec_serde() {
     }
 
     let test_struct = Foo {
-        baz_arr: vec![Baz(52)].into(),
         baz: vec![Baz(99), Baz(42), Baz(88)],
         bar: vec![Bar { a: 32 }, Bar { a: 99 }],
-        tuple_arr: vec![Tuple(12, 12, 12)].into(),
         tuple: vec![Tuple(343, 89, 102), Tuple(33, 897, 457)],
         strings: vec!["test".to_owned(), "test test test".to_owned()],
         enumeration: vec![Enumeration::A, Enumeration::B, Enumeration::E],
         mixed_enumeration: vec![Enumeration::D(12), Enumeration::F { a: 14 }],
-        bar_arr: vec![Bar { a: 35 }].into(),
-        strings_arr: vec!["tteesstt".to_owned()].into(),
         nested_arr: vec![
             vec![vec![1, 20, 9].into()].into(),
             vec![vec![3, 5, 10].into(), vec![99, 10, 32].into()].into(),
         ],
-        enumeration_arr: vec![Enumeration::A, Enumeration::C, Enumeration::E].into(),
         enum_of_vec: Enumeration::G(vec![vec![Bar { a: 13 }, Bar { a: 9 }], vec![Bar { a: 14 }]]),
         empty_byte_array: Vec::new().into(),
         empty_int_array: Vec::new().into(),
@@ -644,12 +635,6 @@ fn vec_serde() {
             [343i16, 89i16, 102i16],
             [33i16, 897i16, 457i16]
         ],
-        "bar_arr": [
-            {
-                "a": 35i32
-            }
-        ],
-        "strings_arr": ["tteesstt"],
         "enumeration": [0i32, 1i32, 4i32],
         "mixed_enumeration": [
             {
@@ -661,10 +646,6 @@ fn vec_serde() {
                 }
             }
         ],
-        "baz_arr": [B; 52],
-        "tuple_arr": [
-            [12i16, 12i16, 12i16]
-        ],
         "nested_arr": [
             [
                 [B; 1, 20, 9]
@@ -674,7 +655,6 @@ fn vec_serde() {
                 [B; 99, 10, 32]
             ]
         ],
-        "enumeration_arr": [I; 0, 2, 4],
         "enum_of_vec": {
             "G": [
                 [
@@ -693,13 +673,13 @@ fn vec_serde() {
             ]
         },
         // Make sure all empty lists coerce to the same type
-        "empty_byte_array": [],
-        "empty_int_array": [],
-        "empty_long_array": [],
+        "empty_byte_array": [B;],
+        "empty_int_array": [I;],
+        "empty_long_array": [L;],
         "empty_tag_list": [],
-        "seq_empty_byte_array": [[], []],
-        "seq_empty_int_array": [[], []],
-        "seq_empty_long_array": [[], []],
+        "seq_empty_byte_array": [[B;], [B;]],
+        "seq_empty_int_array": [[I;], [I;]],
+        "seq_empty_long_array": [[L;], [L;]],
         "seq_empty_tag_list": [[], []],
     };
 
@@ -775,4 +755,122 @@ fn option_serde() {
         .unwrap()
         .0;
     assert_eq!(deserialized_struct, test_struct);
+}
+
+#[test]
+fn borrowed_serde() {
+    #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+    struct BorrowedData<'a> {
+        bytes: Array<&'a [u8]>,
+        string: &'a str,
+    }
+
+    const BYTES: &[u8] = &[1, 2, 3, 4, 5];
+
+    let data = BorrowedData {
+        bytes: Array::from(BYTES),
+        string: "is my unsafe code sound?",
+    };
+
+    let serialized_struct = serialize(&data, None, Flavor::Uncompressed).unwrap();
+    let struct_nbt = io::read_nbt(
+        &mut Cursor::new(serialized_struct.clone()),
+        Flavor::Uncompressed,
+    )
+    .unwrap()
+    .0;
+
+    let validation_nbt = compound! {
+        "bytes": BYTES.to_vec(),
+        "string": "is my unsafe code sound?"
+    };
+
+    assert_eq!(struct_nbt, validation_nbt);
+
+    let deserialized_struct: BorrowedData<'_> =
+        deserialize_from_buffer(&serialized_struct).unwrap().0;
+    assert_eq!(deserialized_struct, data);
+
+    // Just to make it clear what the drop order is
+    drop(deserialized_struct);
+    drop(serialized_struct);
+}
+
+#[test]
+fn inlined_nbt() {
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Inlined {
+        byte: NbtTag,
+        short: NbtTag,
+        int: NbtTag,
+        long: NbtTag,
+        float: NbtTag,
+        double: NbtTag,
+        byte_array: NbtTag,
+        string: NbtTag,
+        tag_list: NbtTag,
+        tag_compound: NbtTag,
+        int_array: NbtTag,
+        long_array: NbtTag,
+        list: NbtList,
+        compound: NbtCompound,
+        normal_field: i32,
+    }
+
+    let test_compound = SNBT_EDGE_CASES_VALIDATE.clone();
+    let test_list = test_compound
+        .get::<_, &NbtList>("chaotic_array")
+        .unwrap()
+        .clone();
+
+    let inlined = Inlined {
+        byte: NbtTag::Byte(31),
+        short: NbtTag::Short(-214),
+        int: NbtTag::Int(328795),
+        long: NbtTag::Long(-928592323532),
+        float: NbtTag::Float(2.71828),
+        double: NbtTag::Double(-3.14159),
+        byte_array: NbtTag::ByteArray(vec![-1, 2, -3, 4]),
+        string: NbtTag::String("foobar".to_owned()),
+        tag_list: NbtTag::List(test_list.clone()),
+        tag_compound: NbtTag::Compound(test_compound.clone()),
+        int_array: NbtTag::IntArray(vec![-1_000_000, 2_000_000]),
+        long_array: NbtTag::LongArray(Vec::new()),
+        list: test_list.clone(),
+        compound: test_compound.clone(),
+        normal_field: 42,
+    };
+
+    let serialized_struct = serialize(&inlined, None, Flavor::Uncompressed).unwrap();
+    let struct_nbt = io::read_nbt(
+        &mut Cursor::new(serialized_struct.clone()),
+        Flavor::Uncompressed,
+    )
+    .unwrap()
+    .0;
+
+    let validation_nbt = compound! {
+        "byte": 31i8,
+        "short": -214i16,
+        "int": 328795i32,
+        "long": -928592323532i64,
+        "float": 2.71828f32,
+        "double": -3.14159f64,
+        "byte_array": [B; -1, 2, -3, 4],
+        "string": "foobar",
+        "tag_list": test_list.clone(),
+        "tag_compound": test_compound.clone(),
+        "int_array": [I; -1_000_000, 2_000_000],
+        "long_array": [L;],
+        "list": test_list,
+        "compound": test_compound,
+        "normal_field": 42i32
+    };
+
+    assert_eq!(struct_nbt, validation_nbt);
+
+    let deserialized_struct: Inlined = deserialize(&serialized_struct, Flavor::Uncompressed)
+        .unwrap()
+        .0;
+    assert_eq!(deserialized_struct, inlined);
 }

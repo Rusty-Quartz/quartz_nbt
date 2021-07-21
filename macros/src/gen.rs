@@ -15,7 +15,7 @@ pub fn gen_compound_expr(compound: &Compound) -> TokenStream {
             quote! { #error }
         } else {
             used_keys.insert(key_string);
-            
+
             quote! {
                 __compound.insert(#key, #value);
             }

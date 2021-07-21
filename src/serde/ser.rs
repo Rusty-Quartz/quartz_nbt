@@ -1,5 +1,8 @@
-use super::util::{DefaultSerializer, Ser};
-use crate::{io::NbtIoError, raw, serde::ARRAY_NEWTYPE_NAME_NICHE};
+use super::{
+    array::{BYTE_ARRAY_NICHE, INT_ARRAY_NICHE, LONG_ARRAY_NICHE},
+    util::{DefaultSerializer, Ser},
+};
+use crate::{io::NbtIoError, raw};
 use serde::{
     ser::{
         Impossible,
@@ -42,13 +45,13 @@ impl<'a, W: Write> UncheckedSerializer<'a, W> {
     }
 }
 
-pub struct SerializerImpl<'a, W, S> {
+pub struct SerializerImpl<'a, W, C> {
     writer: &'a mut W,
     root_name: BorrowedPrefix<&'a str>,
-    _phantom: PhantomData<S>,
+    _phantom: PhantomData<C>,
 }
 
-impl<'a, W: Write, S: TypeChecker> SerializerImpl<'a, W, S> {
+impl<'a, W: Write, C: TypeChecker> SerializerImpl<'a, W, C> {
     fn new(writer: &'a mut W, root_name: BorrowedPrefix<&'a str>) -> Self {
         SerializerImpl {
             writer,
@@ -58,17 +61,16 @@ impl<'a, W: Write, S: TypeChecker> SerializerImpl<'a, W, S> {
     }
 }
 
-impl<'a, W: Write, S: TypeChecker> DefaultSerializer for SerializerImpl<'a, W, S> {
+impl<'a, W: Write, C: TypeChecker> DefaultSerializer for SerializerImpl<'a, W, C> {
     type Error = NbtIoError;
     type Ok = ();
-    type SerializeMap = SerializeCompound<'a, W, S>;
+    type SerializeMap = SerializeCompound<'a, W, C>;
     type SerializeSeq = Impossible<Self::Ok, Self::Error>;
-    type SerializeStruct = SerializeCompound<'a, W, S>;
-    type SerializeStructVariant = SerializeCompound<'a, W, S>;
+    type SerializeStruct = SerializeCompound<'a, W, C>;
+    type SerializeStructVariant = SerializeCompound<'a, W, C>;
     type SerializeTuple = Impossible<Self::Ok, Self::Error>;
     type SerializeTupleStruct = Impossible<Self::Ok, Self::Error>;
-    type SerializeTupleVariant =
-        SerializeList<'a, W, S, BorrowedPrefix<&'static str>, Unchecked, S, false>;
+    type SerializeTupleVariant = SerializeList<'a, W, C>;
 
     #[cold]
     fn unimplemented(self, _ty: &'static str) -> Self::Error {
@@ -140,44 +142,26 @@ impl<'a, W: Write, S: TypeChecker> DefaultSerializer for SerializerImpl<'a, W, S
     }
 }
 
-struct SerializeArray<'a, W, S, P, C> {
+struct SerializeArray<'a, W> {
     writer: &'a mut W,
-    outer_prefix: P,
-    outer_type_checker: &'a C,
-    _phantom: PhantomData<S>,
 }
 
-impl<'a, W, S, P, C> SerializeArray<'a, W, S, P, C>
-where
-    W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    C: TypeChecker,
+impl<'a, W> SerializeArray<'a, W>
+where W: Write
 {
     #[inline]
-    fn new(writer: &'a mut W, outer_prefix: P, outer_type_checker: &'a C) -> Self {
-        SerializeArray {
-            writer,
-            outer_prefix,
-            outer_type_checker,
-            _phantom: PhantomData,
-        }
+    fn new(writer: &'a mut W) -> Self {
+        SerializeArray { writer }
     }
 }
 
-impl<'a, W, S, P, C> DefaultSerializer for SerializeArray<'a, W, S, P, C>
-where
-    W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    C: TypeChecker,
+impl<'a, W> DefaultSerializer for SerializeArray<'a, W>
+where W: Write
 {
     type Error = NbtIoError;
     type Ok = ();
     type SerializeMap = Impossible<Self::Ok, Self::Error>;
-    // Since we currently only support wrapping homogenous sequences in Array, we can get away
-    // with unchecked sequential serialization
-    type SerializeSeq = SerializeList<'a, W, S, P, C, Unchecked, true>;
+    type SerializeSeq = Self;
     type SerializeStruct = Impossible<Self::Ok, Self::Error>;
     type SerializeStructVariant = Impossible<Self::Ok, Self::Error>;
     type SerializeTuple = Self::SerializeSeq;
@@ -191,8 +175,6 @@ where
 
     #[inline]
     fn serialize_bytes(self, value: &[u8]) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x7)?;
-        self.outer_prefix.write(self.writer, 0x7)?;
         raw::write_i32(self.writer, value.len() as i32)?;
         self.writer.write_all(value)?;
         Ok(())
@@ -201,12 +183,8 @@ where
     #[inline]
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
         let len = len.ok_or(NbtIoError::MissingLength)?;
-        SerializeList::new(
-            self.writer,
-            self.outer_prefix,
-            self.outer_type_checker,
-            len as i32,
-        )
+        raw::write_i32(self.writer, len as i32)?;
+        Ok(self)
     }
 
     #[inline]
@@ -224,63 +202,86 @@ where
     }
 }
 
-pub struct SerializeList<'a, W, S, P, Co, Ci, const AUTO_RESOLVE_TYPE: bool> {
-    writer: &'a mut W,
-    outer_prefix: Option<P>,
-    length: Option<i32>,
-    outer_type_checker: &'a Co,
-    inner_type_checker: Ci,
-    _phantom: PhantomData<S>,
-}
-
-impl<'a, W, S, P, Co, Ci, const AUTO_RESOLVE_TYPE: bool>
-    SerializeList<'a, W, S, P, Co, Ci, AUTO_RESOLVE_TYPE>
-where
-    W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+impl<'a, W> SerializeSeq for SerializeArray<'a, W>
+where W: Write
 {
-    fn new(
-        writer: &'a mut W,
-        outer_prefix: P,
-        outer_type_checker: &'a Co,
-        length: i32,
-    ) -> Result<Self, NbtIoError> {
-        if AUTO_RESOLVE_TYPE {
-            Ok(SerializeList {
-                writer,
-                outer_prefix: Some(outer_prefix),
-                length: Some(length),
-                outer_type_checker,
-                inner_type_checker: Ci::new(),
-                _phantom: PhantomData,
-            })
-        } else {
-            outer_type_checker.verify(0x9)?;
-            outer_prefix.write(writer, 0x9)?;
+    type Error = NbtIoError;
+    type Ok = ();
 
-            Ok(SerializeList {
-                writer,
-                outer_prefix: None,
-                length: Some(length),
-                outer_type_checker,
-                inner_type_checker: Ci::new(),
-                _phantom: PhantomData,
-            })
-        }
+    #[inline]
+    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    where T: Serialize {
+        value.serialize(
+            SerializeListElement::new(self.writer, NoPrefix, &UNCHECKED).into_serializer(),
+        )
+    }
+
+    #[inline]
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        Ok(())
     }
 }
 
-impl<'a, W, S, P, Co, Ci, const AUTO_RESOLVE_TYPE: bool> SerializeSeq
-    for SerializeList<'a, W, S, P, Co, Ci, AUTO_RESOLVE_TYPE>
+impl<'a, W> SerializeTuple for SerializeArray<'a, W>
+where W: Write
+{
+    type Error = NbtIoError;
+    type Ok = ();
+
+    #[inline]
+    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    where T: Serialize {
+        <Self as SerializeSeq>::serialize_element(self, value)
+    }
+
+    #[inline]
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        <Self as SerializeSeq>::end(self)
+    }
+}
+
+impl<'a, W> SerializeTupleStruct for SerializeArray<'a, W>
+where W: Write
+{
+    type Error = NbtIoError;
+    type Ok = ();
+
+    #[inline]
+    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
+    where T: Serialize {
+        <Self as SerializeSeq>::serialize_element(self, value)
+    }
+
+    #[inline]
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        <Self as SerializeSeq>::end(self)
+    }
+}
+
+pub struct SerializeList<'a, W, C> {
+    writer: &'a mut W,
+    length: Option<i32>,
+    type_checker: C,
+}
+
+impl<'a, W, C> SerializeList<'a, W, C>
 where
     W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+    C: TypeChecker,
+{
+    fn new(writer: &'a mut W, length: i32) -> Result<Self, NbtIoError> {
+        Ok(SerializeList {
+            writer,
+            length: Some(length),
+            type_checker: C::new(),
+        })
+    }
+}
+
+impl<'a, W, C> SerializeSeq for SerializeList<'a, W, C>
+where
+    W: Write,
+    C: TypeChecker,
 {
     type Error = NbtIoError;
     type Ok = ();
@@ -290,70 +291,35 @@ where
     where T: Serialize {
         match self.length.take() {
             None => value.serialize(
-                SerializeListElement::<_, S, _, _, _, _, AUTO_RESOLVE_TYPE>::new(
+                SerializeListElement::new(self.writer, NoPrefix, &self.type_checker)
+                    .into_serializer(),
+            ),
+            Some(length) => value.serialize(
+                SerializeListElement::new(
                     self.writer,
-                    NoPrefix,
-                    NoPrefix,
-                    &Unchecked,
-                    &self.inner_type_checker,
+                    LengthPrefix::new(length),
+                    &self.type_checker,
                 )
                 .into_serializer(),
             ),
-            Some(length) =>
-                if AUTO_RESOLVE_TYPE {
-                    value.serialize(
-                        SerializeListElement::<_, S, _, _, _, _, AUTO_RESOLVE_TYPE>::new(
-                            self.writer,
-                            self.outer_prefix.take().unwrap(),
-                            LengthPrefix::new(length),
-                            self.outer_type_checker,
-                            &self.inner_type_checker,
-                        )
-                        .into_serializer(),
-                    )
-                } else {
-                    value.serialize(
-                        SerializeListElement::<_, S, _, _, _, _, AUTO_RESOLVE_TYPE>::new(
-                            self.writer,
-                            NoPrefix,
-                            LengthPrefix::new(length),
-                            &Unchecked,
-                            &self.inner_type_checker,
-                        )
-                        .into_serializer(),
-                    )
-                },
         }
     }
 
     #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
         // Empty list
-        if AUTO_RESOLVE_TYPE {
-            if let Some(prefix) = self.outer_prefix {
-                self.outer_type_checker.verify(0x9)?;
-                prefix.write(self.writer, 0x9)?;
-                // We coerce empty tag lists to any list type when deserializing
-                self.writer.write_all(&[0, 0, 0, 0, 0])?;
-            }
-        } else {
-            if let Some(..) = self.length {
-                self.writer.write_all(&[0, 0, 0, 0, 0])?;
-            }
+        if let Some(..) = self.length {
+            self.writer.write_all(&[0, 0, 0, 0, 0])?;
         }
 
         Ok(())
     }
 }
 
-impl<'a, W, S, P, Co, Ci, const AUTO_RESOLVE_TYPE: bool> SerializeTuple
-    for SerializeList<'a, W, S, P, Co, Ci, AUTO_RESOLVE_TYPE>
+impl<'a, W, C> SerializeTuple for SerializeList<'a, W, C>
 where
     W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+    C: TypeChecker,
 {
     type Error = NbtIoError;
     type Ok = ();
@@ -370,14 +336,10 @@ where
     }
 }
 
-impl<'a, W, S, P, Co, Ci, const AUTO_RESOLVE_TYPE: bool> SerializeTupleStruct
-    for SerializeList<'a, W, S, P, Co, Ci, AUTO_RESOLVE_TYPE>
+impl<'a, W, C> SerializeTupleStruct for SerializeList<'a, W, C>
 where
     W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+    C: TypeChecker,
 {
     type Error = NbtIoError;
     type Ok = ();
@@ -394,14 +356,10 @@ where
     }
 }
 
-impl<'a, W, S, P, Co, Ci, const AUTO_RESOLVE_TYPE: bool> SerializeTupleVariant
-    for SerializeList<'a, W, S, P, Co, Ci, AUTO_RESOLVE_TYPE>
+impl<'a, W, C> SerializeTupleVariant for SerializeList<'a, W, C>
 where
     W: Write,
-    S: TypeChecker,
-    P: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+    C: TypeChecker,
 {
     type Error = NbtIoError;
     type Ok = ();
@@ -414,18 +372,9 @@ where
 
     #[inline]
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        if AUTO_RESOLVE_TYPE {
-            // Empty list
-            if let Some(prefix) = self.outer_prefix {
-                self.outer_type_checker.verify(0x9)?;
-                prefix.write(self.writer, 0x9)?;
-                // We coerce empty tag lists to any list type when deserializing
-                self.writer.write_all(&[0, 0, 0, 0, 0])?;
-            }
-        } else {
-            if let Some(..) = self.length {
-                self.writer.write_all(&[0, 0, 0, 0, 0])?;
-            }
+        // Empty list
+        if let Some(..) = self.length {
+            self.writer.write_all(&[0, 0, 0, 0, 0])?;
         }
 
         // Add a TAG_End because tuple variants are serialized as { name: [data...] }
@@ -434,64 +383,43 @@ where
     }
 }
 
-struct SerializeListElement<'a, W, S, Po, Pi, Co, Ci, const AUTO_RESOLVE_TYPE: bool> {
+struct SerializeListElement<'a, W, P, C> {
     writer: &'a mut W,
-    outer_prefix: Po,
-    inner_prefix: Pi,
-    outer_type_checker: &'a Co,
-    inner_type_checker: &'a Ci,
-    _phantom: PhantomData<S>,
+    prefix: P,
+    type_checker: &'a C,
 }
 
-impl<'a, W, S, Po, Pi, Co, Ci, const AUTO_RESOLVE_TYPE: bool>
-    SerializeListElement<'a, W, S, Po, Pi, Co, Ci, AUTO_RESOLVE_TYPE>
+impl<'a, W, P, C> SerializeListElement<'a, W, P, C>
 where
     W: Write,
-    S: TypeChecker,
-    Po: Prefix,
-    Pi: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+    P: Prefix,
+    C: TypeChecker,
 {
     #[inline]
-    fn new(
-        writer: &'a mut W,
-        outer_prefix: Po,
-        inner_prefix: Pi,
-        outer_type_checker: &'a Co,
-        inner_type_checker: &'a Ci,
-    ) -> Self {
+    fn new(writer: &'a mut W, inner_prefix: P, inner_type_checker: &'a C) -> Self {
         SerializeListElement {
             writer,
-            outer_prefix,
-            inner_prefix,
-            outer_type_checker,
-            inner_type_checker,
-            _phantom: PhantomData,
+            prefix: inner_prefix,
+            type_checker: inner_type_checker,
         }
     }
 }
 
-impl<'a, W, S, Po, Pi, Co, Ci, const AUTO_RESOLVE_TYPE: bool> DefaultSerializer
-    for SerializeListElement<'a, W, S, Po, Pi, Co, Ci, AUTO_RESOLVE_TYPE>
+impl<'a, W, P, C> DefaultSerializer for SerializeListElement<'a, W, P, C>
 where
     W: Write,
-    S: TypeChecker,
-    Po: Prefix,
-    Pi: Prefix,
-    Co: TypeChecker,
-    Ci: TypeChecker,
+    P: Prefix,
+    C: TypeChecker,
 {
     type Error = NbtIoError;
     type Ok = ();
-    type SerializeMap = SerializeCompound<'a, W, S>;
-    type SerializeSeq = SerializeList<'a, W, S, Pi, Ci, S, false>;
-    type SerializeStruct = SerializeCompound<'a, W, S>;
-    type SerializeStructVariant = SerializeCompound<'a, W, S>;
-    type SerializeTuple = SerializeList<'a, W, S, Pi, Ci, S, false>;
-    type SerializeTupleStruct = SerializeList<'a, W, S, Pi, Ci, S, false>;
-    type SerializeTupleVariant =
-        SerializeList<'a, W, S, BorrowedPrefix<&'static str>, Unchecked, S, false>;
+    type SerializeMap = SerializeCompound<'a, W, C>;
+    type SerializeSeq = SerializeList<'a, W, C>;
+    type SerializeStruct = SerializeCompound<'a, W, C>;
+    type SerializeStructVariant = SerializeCompound<'a, W, C>;
+    type SerializeTuple = SerializeList<'a, W, C>;
+    type SerializeTupleStruct = SerializeList<'a, W, C>;
+    type SerializeTupleVariant = SerializeList<'a, W, C>;
 
     #[cold]
     fn unimplemented(self, ty: &'static str) -> Self::Error {
@@ -500,28 +428,16 @@ where
 
     #[inline]
     fn serialize_bool(self, value: bool) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x7)?;
-        self.outer_prefix.write(self.writer, 0x7)?;
-        self.inner_type_checker.verify(0x1)?;
-        if AUTO_RESOLVE_TYPE {
-            self.inner_prefix.write_raw(self.writer)?;
-        } else {
-            self.inner_prefix.write(self.writer, 0x1)?;
-        }
+        self.type_checker.verify(0x1)?;
+        self.prefix.write(self.writer, 0x1)?;
         raw::write_bool(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_i8(self, value: i8) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x7)?;
-        self.outer_prefix.write(self.writer, 0x7)?;
-        self.inner_type_checker.verify(0x1)?;
-        if AUTO_RESOLVE_TYPE {
-            self.inner_prefix.write_raw(self.writer)?;
-        } else {
-            self.inner_prefix.write(self.writer, 0x1)?;
-        }
+        self.type_checker.verify(0x1)?;
+        self.prefix.write(self.writer, 0x1)?;
         raw::write_i8(self.writer, value)?;
         Ok(())
     }
@@ -533,78 +449,56 @@ where
 
     #[inline]
     fn serialize_i16(self, value: i16) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0x2)?;
-        self.inner_prefix.write(self.writer, 0x2)?;
+        self.type_checker.verify(0x2)?;
+        self.prefix.write(self.writer, 0x2)?;
         raw::write_i16(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_i32(self, value: i32) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0xB)?;
-        self.outer_prefix.write(self.writer, 0xB)?;
-        self.inner_type_checker.verify(0x3)?;
-        if AUTO_RESOLVE_TYPE {
-            self.inner_prefix.write_raw(self.writer)?;
-        } else {
-            self.inner_prefix.write(self.writer, 0x3)?;
-        }
+        self.type_checker.verify(0x3)?;
+        self.prefix.write(self.writer, 0x3)?;
         raw::write_i32(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_i64(self, value: i64) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0xC)?;
-        self.outer_prefix.write(self.writer, 0xC)?;
-        self.inner_type_checker.verify(0x4)?;
-        if AUTO_RESOLVE_TYPE {
-            self.inner_prefix.write_raw(self.writer)?;
-        } else {
-            self.inner_prefix.write(self.writer, 0x4)?;
-        }
+        self.type_checker.verify(0x4)?;
+        self.prefix.write(self.writer, 0x4)?;
         raw::write_i64(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_f32(self, value: f32) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0x5)?;
-        self.inner_prefix.write(self.writer, 0x5)?;
+        self.type_checker.verify(0x5)?;
+        self.prefix.write(self.writer, 0x5)?;
         raw::write_f32(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_f64(self, value: f64) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0x6)?;
-        self.inner_prefix.write(self.writer, 0x6)?;
+        self.type_checker.verify(0x6)?;
+        self.prefix.write(self.writer, 0x6)?;
         raw::write_f64(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_str(self, value: &str) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0x8)?;
-        self.inner_prefix.write(self.writer, 0x8)?;
+        self.type_checker.verify(0x8)?;
+        self.prefix.write(self.writer, 0x8)?;
         raw::write_string(self.writer, value)?;
         Ok(())
     }
 
     #[inline]
     fn serialize_bytes(self, value: &[u8]) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0x7)?;
-        self.inner_prefix.write(self.writer, 0x7)?;
+        self.type_checker.verify(0x7)?;
+        self.prefix.write(self.writer, 0x7)?;
         raw::write_i32(self.writer, value.len() as i32)?;
         self.writer.write_all(value)?;
         Ok(())
@@ -638,14 +532,8 @@ where
         variant_index: u32,
         _variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        self.outer_type_checker.verify(0xB)?;
-        self.outer_prefix.write(self.writer, 0xB)?;
-        self.inner_type_checker.verify(0x3)?;
-        if AUTO_RESOLVE_TYPE {
-            self.inner_prefix.write_raw(self.writer)?;
-        } else {
-            self.inner_prefix.write(self.writer, 0x3)?;
-        }
+        self.type_checker.verify(0x3)?;
+        self.prefix.write(self.writer, 0x3)?;
         raw::write_i32(self.writer, variant_index as i32)?;
         Ok(())
     }
@@ -659,21 +547,22 @@ where
     where
         T: Serialize,
     {
-        if name == ARRAY_NEWTYPE_NAME_NICHE {
-            self.outer_type_checker.verify(0x9)?;
-            self.outer_prefix.write(self.writer, 0x9)?;
-
-            value.serialize(
-                SerializeArray::<_, S, _, _>::new(
-                    self.writer,
-                    self.inner_prefix,
-                    self.inner_type_checker,
-                )
-                .into_serializer(),
-            )
-        } else {
-            value.serialize(self.into_serializer())
+        match name {
+            BYTE_ARRAY_NICHE => {
+                self.type_checker.verify(0x7)?;
+                self.prefix.write(self.writer, 0x7)?;
+            }
+            INT_ARRAY_NICHE => {
+                self.type_checker.verify(0xB)?;
+                self.prefix.write(self.writer, 0xB)?;
+            }
+            LONG_ARRAY_NICHE => {
+                self.type_checker.verify(0xC)?;
+                self.prefix.write(self.writer, 0xC)?;
+            }
+            _ => return value.serialize(self.into_serializer()),
         }
+        value.serialize(SerializeArray::new(self.writer).into_serializer())
     }
 
     #[inline]
@@ -687,12 +576,10 @@ where
     where
         T: Serialize,
     {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0xA)?;
-        self.inner_prefix.write(self.writer, 0xA)?;
+        self.type_checker.verify(0xA)?;
+        self.prefix.write(self.writer, 0xA)?;
         value.serialize(
-            SerializeCompoundEntry::<_, S, _>::new(self.writer, BorrowedPrefix::new(variant))
+            SerializeCompoundEntry::<_, C, _>::new(self.writer, BorrowedPrefix::new(variant))
                 .into_serializer(),
         )?;
         raw::write_u8(self.writer, raw::id_for_tag(None))?;
@@ -701,15 +588,11 @@ where
 
     #[inline]
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
+        self.type_checker.verify(0x9)?;
+        self.prefix.write(self.writer, 0x9)?;
         let len = len.ok_or(NbtIoError::MissingLength)?;
-        SerializeList::new(
-            self.writer,
-            self.inner_prefix,
-            self.inner_type_checker,
-            len as i32,
-        )
+
+        SerializeList::new(self.writer, len as i32)
     }
 
     #[inline]
@@ -736,12 +619,9 @@ where
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
         // [{name: []}]
 
-        // Check that we're allowed to have a tag list in a tag list
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
         // Check that we're allowed to have compounds in this list
-        self.inner_type_checker.verify(0xA)?;
-        self.inner_prefix.write(self.writer, 0xA)?;
+        self.type_checker.verify(0xA)?;
+        self.prefix.write(self.writer, 0xA)?;
 
         // Write the compound
         let prefix = BorrowedPrefix::new(variant);
@@ -750,10 +630,8 @@ where
 
     #[inline]
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0xA)?;
-        self.inner_prefix.write(self.writer, 0xA)?;
+        self.type_checker.verify(0xA)?;
+        self.prefix.write(self.writer, 0xA)?;
         Ok(SerializeCompound::new(self.writer))
     }
 
@@ -774,10 +652,8 @@ where
         variant: &'static str,
         _len: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        self.outer_type_checker.verify(0x9)?;
-        self.outer_prefix.write(self.writer, 0x9)?;
-        self.inner_type_checker.verify(0xA)?;
-        self.inner_prefix.write(self.writer, 0xA)?;
+        self.type_checker.verify(0xA)?;
+        self.prefix.write(self.writer, 0xA)?;
         raw::write_u8(self.writer, 0xA)?;
         raw::write_string(self.writer, variant)?;
         // The extra closing tag is added by the SerializeStructVariant impl
@@ -790,13 +666,13 @@ where
     }
 }
 
-pub struct SerializeCompound<'a, W, S> {
+pub struct SerializeCompound<'a, W, C> {
     writer: &'a mut W,
     key: Option<Box<[u8]>>,
-    _phantom: PhantomData<S>,
+    _phantom: PhantomData<C>,
 }
 
-impl<'a, W: Write, S: TypeChecker> SerializeCompound<'a, W, S> {
+impl<'a, W: Write, C: TypeChecker> SerializeCompound<'a, W, C> {
     #[inline]
     fn new(writer: &'a mut W) -> Self {
         SerializeCompound {
@@ -807,7 +683,7 @@ impl<'a, W: Write, S: TypeChecker> SerializeCompound<'a, W, S> {
     }
 }
 
-impl<'a, W: Write, S: TypeChecker> SerializeMap for SerializeCompound<'a, W, S> {
+impl<'a, W: Write, C: TypeChecker> SerializeMap for SerializeCompound<'a, W, C> {
     type Error = NbtIoError;
     type Ok = ();
 
@@ -829,7 +705,7 @@ impl<'a, W: Write, S: TypeChecker> SerializeMap for SerializeCompound<'a, W, S> 
             .expect("serialize_value called before key was serialized.");
         let prefix = RawPrefix::new(key);
         value.serialize(
-            SerializeCompoundEntry::<_, S, _>::new(self.writer, prefix).into_serializer(),
+            SerializeCompoundEntry::<_, C, _>::new(self.writer, prefix).into_serializer(),
         )
     }
 
@@ -845,7 +721,7 @@ impl<'a, W: Write, S: TypeChecker> SerializeMap for SerializeCompound<'a, W, S> 
     {
         let prefix = BorrowedPrefix::new(key);
         value.serialize(
-            SerializeCompoundEntry::<_, S, _>::new(self.writer, prefix).into_serializer(),
+            SerializeCompoundEntry::<_, C, _>::new(self.writer, prefix).into_serializer(),
         )
     }
 
@@ -856,7 +732,7 @@ impl<'a, W: Write, S: TypeChecker> SerializeMap for SerializeCompound<'a, W, S> 
     }
 }
 
-impl<'a, W: Write, S: TypeChecker> SerializeStruct for SerializeCompound<'a, W, S> {
+impl<'a, W: Write, C: TypeChecker> SerializeStruct for SerializeCompound<'a, W, C> {
     type Error = NbtIoError;
     type Ok = ();
 
@@ -871,7 +747,7 @@ impl<'a, W: Write, S: TypeChecker> SerializeStruct for SerializeCompound<'a, W, 
     {
         let prefix = BorrowedPrefix::new(key);
         value.serialize(
-            SerializeCompoundEntry::<_, S, _>::new(self.writer, prefix).into_serializer(),
+            SerializeCompoundEntry::<_, C, _>::new(self.writer, prefix).into_serializer(),
         )
     }
 
@@ -882,7 +758,7 @@ impl<'a, W: Write, S: TypeChecker> SerializeStruct for SerializeCompound<'a, W, 
     }
 }
 
-impl<'a, W: Write, S: TypeChecker> SerializeStructVariant for SerializeCompound<'a, W, S> {
+impl<'a, W: Write, C: TypeChecker> SerializeStructVariant for SerializeCompound<'a, W, C> {
     type Error = NbtIoError;
     type Ok = ();
 
@@ -906,13 +782,13 @@ impl<'a, W: Write, S: TypeChecker> SerializeStructVariant for SerializeCompound<
     }
 }
 
-struct SerializeCompoundEntry<'a, W, S, P> {
+struct SerializeCompoundEntry<'a, W, C, P> {
     writer: &'a mut W,
     prefix: P,
-    _phantom: PhantomData<S>,
+    _phantom: PhantomData<C>,
 }
 
-impl<'a, W: Write, S: TypeChecker, P: Prefix> SerializeCompoundEntry<'a, W, S, P> {
+impl<'a, W: Write, C: TypeChecker, P: Prefix> SerializeCompoundEntry<'a, W, C, P> {
     #[inline]
     fn new(writer: &'a mut W, prefix: P) -> Self {
         SerializeCompoundEntry {
@@ -923,22 +799,21 @@ impl<'a, W: Write, S: TypeChecker, P: Prefix> SerializeCompoundEntry<'a, W, S, P
     }
 }
 
-impl<'a, W, S, P> DefaultSerializer for SerializeCompoundEntry<'a, W, S, P>
+impl<'a, W, C, P> DefaultSerializer for SerializeCompoundEntry<'a, W, C, P>
 where
     W: Write,
-    S: TypeChecker,
+    C: TypeChecker,
     P: Prefix,
 {
     type Error = NbtIoError;
     type Ok = ();
-    type SerializeMap = SerializeCompound<'a, W, S>;
-    type SerializeSeq = SerializeList<'a, W, S, P, Unchecked, S, false>;
-    type SerializeStruct = SerializeCompound<'a, W, S>;
-    type SerializeStructVariant = SerializeCompound<'a, W, S>;
-    type SerializeTuple = SerializeList<'a, W, S, P, Unchecked, S, false>;
-    type SerializeTupleStruct = SerializeList<'a, W, S, P, Unchecked, S, false>;
-    type SerializeTupleVariant =
-        SerializeList<'a, W, S, BorrowedPrefix<&'static str>, Unchecked, S, false>;
+    type SerializeMap = SerializeCompound<'a, W, C>;
+    type SerializeSeq = SerializeList<'a, W, C>;
+    type SerializeStruct = SerializeCompound<'a, W, C>;
+    type SerializeStructVariant = SerializeCompound<'a, W, C>;
+    type SerializeTuple = SerializeList<'a, W, C>;
+    type SerializeTupleStruct = SerializeList<'a, W, C>;
+    type SerializeTupleVariant = SerializeList<'a, W, C>;
 
     #[cold]
     fn unimplemented(self, ty: &'static str) -> Self::Error {
@@ -1056,14 +931,19 @@ where
     where
         T: Serialize,
     {
-        if name == ARRAY_NEWTYPE_NAME_NICHE {
-            value.serialize(
-                SerializeArray::<_, S, _, _>::new(self.writer, self.prefix, &UNCHECKED)
-                    .into_serializer(),
-            )
-        } else {
-            value.serialize(self.into_serializer())
+        match name {
+            BYTE_ARRAY_NICHE => {
+                self.prefix.write(self.writer, 0x7)?;
+            }
+            INT_ARRAY_NICHE => {
+                self.prefix.write(self.writer, 0xB)?;
+            }
+            LONG_ARRAY_NICHE => {
+                self.prefix.write(self.writer, 0xC)?;
+            }
+            _ => return value.serialize(self.into_serializer()),
         }
+        value.serialize(SerializeArray::new(self.writer).into_serializer())
     }
 
     #[inline]
@@ -1079,7 +959,7 @@ where
     {
         self.prefix.write(self.writer, 0xA)?;
         value.serialize(
-            SerializeCompoundEntry::<_, S, _>::new(self.writer, BorrowedPrefix::new(variant))
+            SerializeCompoundEntry::<_, C, _>::new(self.writer, BorrowedPrefix::new(variant))
                 .into_serializer(),
         )?;
         raw::write_u8(self.writer, raw::id_for_tag(None))?;
@@ -1088,8 +968,10 @@ where
 
     #[inline]
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
+        self.prefix.write(self.writer, 0x9)?;
         let len = len.ok_or(NbtIoError::MissingLength)?;
-        SerializeList::new(self.writer, self.prefix, &UNCHECKED, len as i32)
+
+        SerializeList::new(self.writer, len as i32)
     }
 
     #[inline]

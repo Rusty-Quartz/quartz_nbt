@@ -1,8 +1,9 @@
-use crate::NbtTag;
+use crate::{io::NbtIoError, NbtTag};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
-    io::{Error, ErrorKind, Read, Result, Write},
+    io::{Read, Result, Write},
     mem::ManuallyDrop,
+    result::Result as StdResult,
     slice,
 };
 
@@ -71,18 +72,14 @@ pub fn read_f64<R: Read>(reader: &mut R) -> Result<f64> {
     reader.read_f64::<BigEndian>()
 }
 
-pub fn read_string<R: Read>(reader: &mut R) -> Result<String> {
+pub fn read_string<R: Read>(reader: &mut R) -> StdResult<String, NbtIoError> {
     let len = read_u16(reader)? as usize;
     let mut bytes = vec![0; len];
     reader.read_exact(&mut bytes)?;
 
     let java_decoded = match cesu8::from_java_cesu8(&bytes) {
         Ok(string) => string,
-        Err(_) =>
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "Invalid string encoding.",
-            )),
+        Err(_) => return Err(NbtIoError::NonCesu8String),
     };
 
     Ok(java_decoded.into_owned())
@@ -92,17 +89,13 @@ pub fn read_string<R: Read>(reader: &mut R) -> Result<String> {
 pub fn read_string_into<'a, R: Read>(
     reader: &mut R,
     dest: &'a mut Vec<u8>,
-) -> Result<std::borrow::Cow<'a, str>> {
+) -> StdResult<std::borrow::Cow<'a, str>, NbtIoError> {
     let len = read_u16(reader)? as usize;
     dest.resize(len, 0);
     reader.read_exact(dest)?;
     match cesu8::from_java_cesu8(dest) {
         Ok(string) => Ok(string),
-        Err(_) =>
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "Invalid string encoding.",
-            )),
+        Err(_) => return Err(NbtIoError::NonCesu8String),
     }
 }
 

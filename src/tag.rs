@@ -21,7 +21,7 @@ use std::{
 /// This type will implement both `Serialize` and `Deserialize` when the serde feature is enabled,
 /// however this type should still be read and written with the utilities in the [`io`] module when
 /// possible if speed is the main priority. When linking into the serde ecosystem, we ensured that all
-/// tag types would have their data inlined into the result NBT output of our Serializer. Because of
+/// tag types would have their data inlined into the resulting NBT output of our Serializer. Because of
 /// this, NBT tags are only compatible with self-describing formats, and also have slower deserialization
 /// implementations due to this restriction.
 ///
@@ -966,7 +966,7 @@ pub use serde_impl::*;
 #[cfg(feature = "serde")]
 mod serde_impl {
     use super::*;
-    use crate::serde::Array;
+    use crate::serde::{Array, TypeHint};
     use serde::{
         de::{self, MapAccess, Visitor},
         Deserialize,
@@ -985,13 +985,12 @@ mod serde_impl {
                 &NbtTag::Long(value) => serializer.serialize_i64(value),
                 &NbtTag::Float(value) => serializer.serialize_f32(value),
                 &NbtTag::Double(value) => serializer.serialize_f64(value),
-                NbtTag::ByteArray(bytes) =>
-                    Array(raw::cast_bytes_to_unsigned(bytes.as_slice())).serialize(serializer),
+                NbtTag::ByteArray(array) => Array::from(array).serialize(serializer),
                 NbtTag::String(value) => serializer.serialize_str(value),
                 NbtTag::List(list) => list.serialize(serializer),
                 NbtTag::Compound(compound) => compound.serialize(serializer),
-                NbtTag::IntArray(array) => Array(array).serialize(serializer),
-                NbtTag::LongArray(array) => Array(array).serialize(serializer),
+                NbtTag::IntArray(array) => Array::from(array).serialize(serializer),
+                NbtTag::LongArray(array) => Array::from(array).serialize(serializer),
             }
         }
     }
@@ -1137,7 +1136,16 @@ mod serde_impl {
                 ArbitraryList::Int(list) => NbtTag::IntArray(list),
                 ArbitraryList::Long(list) => NbtTag::LongArray(list),
                 ArbitraryList::Tag(list) => NbtTag::List(NbtList(list)),
-                ArbitraryList::Indeterminate => NbtTag::List(NbtList::new()),
+                // Try to acquire a type hint
+                ArbitraryList::Indeterminate => match seq.next_element::<TypeHint>() {
+                    Ok(Some(TypeHint { hint: Some(tag_id) })) => match tag_id {
+                        0x7 => NbtTag::ByteArray(Vec::new()),
+                        0xB => NbtTag::IntArray(Vec::new()),
+                        0xC => NbtTag::LongArray(Vec::new()),
+                        _ => NbtTag::List(NbtList::new()),
+                    },
+                    _ => NbtTag::List(NbtList::new()),
+                },
             })
         }
     }

@@ -78,7 +78,6 @@ fn read_tag_body_const<R: Read, const TAG_ID: u8>(reader: &mut R) -> Result<NbtT
         0x6 => NbtTag::Double(raw::read_f64(reader)?),
         0x7 => {
             let len = raw::read_i32(reader)? as usize;
-            // TODO: consider using some unsafe to avoid initialization
             let mut array = vec![0u8; len];
 
             reader.read_exact(&mut array)?;
@@ -293,6 +292,8 @@ pub enum NbtIoError {
     InvalidKey,
     /// An invalid enum variant was encountered.
     InvalidEnumVariant,
+    /// A non-cesu8 string was encountered.
+    NonCesu8String,
     /// An unsupported type was passed to a serializer or queried from a deserializer.
     UnsupportedType(&'static str),
     /// A custom error message.
@@ -355,6 +356,7 @@ impl Display for NbtIoError {
             NbtIoError::InvalidKey => write!(f, "Map keys must be a valid string"),
             NbtIoError::InvalidEnumVariant =>
                 write!(f, "Encountered invalid enum variant while deserializing"),
+            NbtIoError::NonCesu8String => write!(f, "Encountered non-CESU8 string"),
             NbtIoError::UnsupportedType(ty) =>
                 write!(f, "Type {} is not supported by Minecraft's NBT format", ty),
             NbtIoError::Custom(msg) => write!(f, "{}", msg),
