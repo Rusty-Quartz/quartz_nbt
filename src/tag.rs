@@ -1,19 +1,22 @@
 use crate::{
     raw,
     snbt::{self, SnbtError},
-    NbtRepr,
     NbtReprError,
     NbtStructureError,
 };
 use std::{
-    borrow::Borrow,
+    borrow::{Borrow, BorrowMut},
     collections::HashMap,
     convert::{AsMut, AsRef, TryFrom},
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
+    iter::FromIterator,
     ops::{Index, IndexMut},
     str::FromStr,
 };
+
+#[allow(deprecated)]
+use crate::NbtRepr;
 
 /// The generic NBT tag type, containing all supported tag variants which wrap around a corresponding
 /// rust type.
@@ -199,14 +202,16 @@ impl NbtTag {
 }
 
 impl Display for NbtTag {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.to_snbt(), f)
     }
 }
 
 impl Debug for NbtTag {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&self.to_snbt(), f)
+        write!(f, "{}", self.to_snbt())
     }
 }
 
@@ -215,6 +220,7 @@ macro_rules! tag_from {
     ($($type:ty, $tag:ident);*) => {
         $(
             impl From<$type> for NbtTag {
+                #[inline]
                 fn from(value: $type) -> NbtTag {
                     NbtTag::$tag(value)
                 }
@@ -239,36 +245,43 @@ tag_from!(
 );
 
 impl From<&str> for NbtTag {
+    #[inline]
     fn from(value: &str) -> NbtTag {
         NbtTag::String(value.to_owned())
     }
 }
 
 impl From<&String> for NbtTag {
+    #[inline]
     fn from(value: &String) -> NbtTag {
         NbtTag::String(value.clone())
     }
 }
 
 impl From<bool> for NbtTag {
+    #[inline]
     fn from(value: bool) -> NbtTag {
         NbtTag::Byte(if value { 1 } else { 0 })
     }
 }
 
 impl From<u8> for NbtTag {
+    #[inline]
     fn from(value: u8) -> Self {
         NbtTag::Byte(value as i8)
     }
 }
 
 impl From<Vec<u8>> for NbtTag {
+    #[inline]
     fn from(value: Vec<u8>) -> Self {
         NbtTag::ByteArray(raw::cast_byte_buf_to_signed(value))
     }
 }
 
+#[allow(deprecated)]
 impl<T: NbtRepr> From<T> for NbtTag {
+    #[inline]
     fn from(x: T) -> Self {
         NbtTag::Compound(x.to_nbt())
     }
@@ -280,6 +293,7 @@ macro_rules! prim_from_tag {
             impl TryFrom<&NbtTag> for $type {
                 type Error = NbtStructureError;
 
+                #[inline]
                 fn try_from(tag: &NbtTag) -> Result<Self, Self::Error> {
                     if let NbtTag::$tag(value) = tag {
                         Ok(*value)
@@ -321,6 +335,7 @@ impl TryFrom<&NbtTag> for bool {
 impl TryFrom<&NbtTag> for u8 {
     type Error = NbtStructureError;
 
+    #[inline]
     fn try_from(tag: &NbtTag) -> Result<Self, Self::Error> {
         match tag {
             &NbtTag::Byte(value) => Ok(value as u8),
@@ -335,6 +350,7 @@ macro_rules! ref_from_tag {
             impl<'a> TryFrom<&'a NbtTag> for &'a $type {
                 type Error = NbtStructureError;
 
+                #[inline]
                 fn try_from(tag: &'a NbtTag) -> Result<Self, Self::Error> {
                     if let NbtTag::$tag(value) = tag {
                         Ok(value)
@@ -347,6 +363,7 @@ macro_rules! ref_from_tag {
             impl<'a> TryFrom<&'a mut NbtTag> for &'a mut $type {
                 type Error = NbtStructureError;
 
+                #[inline]
                 fn try_from(tag: &'a mut NbtTag) -> Result<Self, Self::Error> {
                     if let NbtTag::$tag(value) = tag {
                         Ok(value)
@@ -381,6 +398,7 @@ ref_from_tag!(
 impl<'a> TryFrom<&'a NbtTag> for &'a u8 {
     type Error = NbtStructureError;
 
+    #[inline]
     fn try_from(tag: &'a NbtTag) -> Result<Self, Self::Error> {
         if let NbtTag::Byte(value) = tag {
             Ok(unsafe { &*(value as *const i8 as *const u8) })
@@ -393,6 +411,7 @@ impl<'a> TryFrom<&'a NbtTag> for &'a u8 {
 impl<'a> TryFrom<&'a NbtTag> for &'a [u8] {
     type Error = NbtStructureError;
 
+    #[inline]
     fn try_from(tag: &'a NbtTag) -> Result<Self, Self::Error> {
         if let NbtTag::ByteArray(value) = tag {
             Ok(raw::cast_bytes_to_unsigned(value.as_slice()))
@@ -411,6 +430,7 @@ macro_rules! from_tag {
             impl TryFrom<NbtTag> for $type {
                 type Error = NbtStructureError;
 
+                #[inline]
                 fn try_from(tag: NbtTag) -> Result<Self, Self::Error> {
                     if let NbtTag::$tag(value) = tag {
                         Ok(value)
@@ -441,6 +461,7 @@ from_tag!(
 impl TryFrom<NbtTag> for Vec<u8> {
     type Error = NbtStructureError;
 
+    #[inline]
     fn try_from(tag: NbtTag) -> Result<Self, Self::Error> {
         if let NbtTag::ByteArray(value) = tag {
             Ok(raw::cast_byte_buf_to_unsigned(value))
@@ -467,21 +488,25 @@ pub struct NbtList(pub(crate) Vec<NbtTag>);
 
 impl NbtList {
     /// Returns a new NBT tag list with an empty internal vec.
+    #[inline]
     pub const fn new() -> Self {
         NbtList(Vec::new())
     }
 
     /// Returns a mutable reference to the internal vector of this NBT list.
+    #[inline]
     pub fn inner_mut(&mut self) -> &mut Vec<NbtTag> {
         &mut self.0
     }
 
     /// Returns the internal vector of this NBT list.
+    #[inline]
     pub fn into_inner(self) -> Vec<NbtTag> {
         self.0
     }
 
     /// Returns a new NBT tag list with the given initial capacity.
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         NbtList(Vec::with_capacity(capacity))
     }
@@ -498,6 +523,7 @@ impl NbtList {
     /// ```
     ///
     /// [`NbtList`]: crate::tag::NbtList
+    #[inline]
     pub fn clone_from<'a, T, L>(list: L) -> Self
     where
         T: Clone + Into<NbtTag> + 'a,
@@ -511,6 +537,12 @@ impl NbtList {
     ///
     /// [`NbtCompound`]: crate::tag::NbtCompound
     /// [`NbtList`]: crate::tag::NbtList
+    #[inline]
+    #[deprecated(
+        since = "0.2.3",
+        note = "This trait will eventually be made obsolete with serde compatibility"
+    )]
+    #[allow(deprecated)]
     pub fn clone_repr_from<'a, T, L>(list: L) -> Self
     where
         T: NbtRepr + 'a,
@@ -536,6 +568,7 @@ impl NbtList {
     /// assert!(matches!(iter.next(), Some(Err(..)))); // Type mismatch
     /// assert!(iter.next().is_none());
     /// ```
+    #[inline]
     pub fn iter_map<'a, T: TryFrom<&'a NbtTag>>(
         &'a self,
     ) -> impl Iterator<Item = Result<T, <T as TryFrom<&'a NbtTag>>::Error>> + 'a {
@@ -544,6 +577,7 @@ impl NbtList {
 
     /// Iterates over mutable references to the tags in this list, converting each tag reference into
     /// the specified type. See [`iter_map`](crate::tag::NbtList::iter_map) for usage details.
+    #[inline]
     pub fn iter_mut_map<'a, T: TryFrom<&'a mut NbtTag>>(
         &'a mut self,
     ) -> impl Iterator<Item = Result<T, <T as TryFrom<&'a mut NbtTag>>::Error>> + 'a {
@@ -590,6 +624,7 @@ impl NbtList {
     /// assert!(list.get::<f64>(0).is_err()); // Type mismatch
     /// assert!(list.get::<i32>(10).is_err()); // Invalid index
     /// ```
+    #[inline]
     pub fn get<'a, T>(&'a self, index: usize) -> Result<T, NbtReprError>
     where
         T: TryFrom<&'a NbtTag>,
@@ -617,6 +652,7 @@ impl NbtList {
     /// assert!(list.get::<f64>(0).is_err()); // Type mismatch
     /// assert!(list.get::<i32>(10).is_err()); // Invalid index
     /// ```
+    #[inline]
     pub fn get_mut<'a, T>(&'a mut self, index: usize) -> Result<T, NbtReprError>
     where
         T: TryFrom<&'a mut NbtTag>,
@@ -643,50 +679,116 @@ impl NbtList {
     /// assert!(list.get::<f64>(0).is_err()); // Type mismatch
     /// assert!(list.get::<i32>(10).is_err()); // Invalid index
     /// ```
+    #[inline]
     pub fn push<T: Into<NbtTag>>(&mut self, value: T) {
         self.0.push(value.into());
     }
 }
 
 impl<T: Into<NbtTag>> From<Vec<T>> for NbtList {
+    #[inline]
     fn from(list: Vec<T>) -> Self {
         NbtList(list.into_iter().map(|x| x.into()).collect())
     }
 }
 
+impl IntoIterator for NbtList {
+    type IntoIter = <Vec<NbtTag> as IntoIterator>::IntoIter;
+    type Item = NbtTag;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a NbtList {
+    type IntoIter = <&'a Vec<NbtTag> as IntoIterator>::IntoIter;
+    type Item = &'a NbtTag;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.0).into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut NbtList {
+    type IntoIter = <&'a mut Vec<NbtTag> as IntoIterator>::IntoIter;
+    type Item = &'a mut NbtTag;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        (&mut self.0).into_iter()
+    }
+}
+
+impl FromIterator<NbtTag> for NbtList {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = NbtTag>>(iter: T) -> Self {
+        NbtList(Vec::from_iter(iter))
+    }
+}
+
 impl AsRef<[NbtTag]> for NbtList {
+    #[inline]
     fn as_ref(&self) -> &[NbtTag] {
         &self.0
     }
 }
 
 impl AsMut<[NbtTag]> for NbtList {
+    #[inline]
     fn as_mut(&mut self) -> &mut [NbtTag] {
         &mut self.0
     }
 }
 
+impl Borrow<[NbtTag]> for NbtList {
+    #[inline]
+    fn borrow(&self) -> &[NbtTag] {
+        &self.0
+    }
+}
+
+impl BorrowMut<[NbtTag]> for NbtList {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut [NbtTag] {
+        &mut self.0
+    }
+}
+
 impl Display for NbtList {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.to_snbt(), f)
     }
 }
 
 impl Debug for NbtList {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&self.to_snbt(), f)
+        write!(f, "{}", self.to_snbt())
+    }
+}
+
+impl Extend<NbtTag> for NbtList {
+    #[inline]
+    fn extend<T: IntoIterator<Item = NbtTag>>(&mut self, iter: T) {
+        self.0.extend(iter);
     }
 }
 
 impl Index<usize> for NbtList {
     type Output = NbtTag;
 
+    #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
     }
 }
 
 impl IndexMut<usize> for NbtList {
+    #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.0[index]
     }
@@ -707,26 +809,31 @@ pub struct NbtCompound(pub(crate) HashMap<String, NbtTag>);
 
 impl NbtCompound {
     /// Returns a new NBT tag compound with an empty internal hash map.
+    #[inline]
     pub fn new() -> Self {
         NbtCompound(HashMap::new())
     }
 
     /// Returns a reference to the internal hash map of this compound.
+    #[inline]
     pub fn inner(&self) -> &HashMap<String, NbtTag> {
         &self.0
     }
 
     /// Returns a mutable reference to the internal hash map of this compound.
+    #[inline]
     pub fn inner_mut(&mut self) -> &mut HashMap<String, NbtTag> {
         &mut self.0
     }
 
     /// Returns the internal hash map of this NBT compound.
+    #[inline]
     pub fn into_inner(self) -> HashMap<String, NbtTag> {
         self.0
     }
 
     /// Returns a new NBT tag compound with the given initial capacity.
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         NbtCompound(HashMap::with_capacity(capacity))
     }
@@ -748,6 +855,7 @@ impl NbtCompound {
     ///     5i32
     /// );
     /// ```
+    #[inline]
     pub fn clone_from<'a, K, V, M>(map: &'a M) -> Self
     where
         K: Clone + Into<String> + 'a,
@@ -765,6 +873,12 @@ impl NbtCompound {
     /// NBT representation.
     ///
     /// [`NbtCompound`]: crate::tag::NbtCompound
+    #[inline]
+    #[deprecated(
+        since = "0.2.3",
+        note = "This trait will eventually be made obsolete with serde compatibility"
+    )]
+    #[allow(deprecated)]
     pub fn clone_repr_from<'a, K, V, M>(map: &'a M) -> Self
     where
         K: Clone + Into<String> + 'a,
@@ -781,6 +895,7 @@ impl NbtCompound {
     /// Iterates over this tag compound, converting each tag reference into the specified type. Each key is
     /// paired with the result of the attempted conversion into the specified type. The iterator will not
     /// terminate even if some conversions fail.
+    #[inline]
     pub fn iter_map<'a, T: TryFrom<&'a NbtTag>>(
         &'a self,
     ) -> impl Iterator<Item = (&'a str, Result<T, <T as TryFrom<&'a NbtTag>>::Error>)> + 'a {
@@ -791,6 +906,7 @@ impl NbtCompound {
 
     /// Iterates over this tag compound, converting each mutable tag reference into the specified type. See
     /// [`iter_map`](crate::tag::NbtCompound::iter_map) for details.
+    #[inline]
     pub fn iter_mut_map<'a, T: TryFrom<&'a mut NbtTag>>(
         &'a mut self,
     ) -> impl Iterator<Item = (&'a str, Result<T, <T as TryFrom<&'a mut NbtTag>>::Error>)> + 'a
@@ -847,6 +963,7 @@ impl NbtCompound {
     /// assert!(compound.get::<_, i32>("test").is_err()); // Type mismatch
     /// assert!(compound.get::<_, f64>("foo").is_err()); // Missing tag
     /// ```
+    #[inline]
     pub fn get<'a, 'b, K, T>(&'a self, name: &'b K) -> Result<T, NbtReprError>
     where
         String: Borrow<K>,
@@ -877,6 +994,7 @@ impl NbtCompound {
     /// assert!(compound.get::<_, i32>("test").is_err()); // Type mismatch
     /// assert!(compound.get::<_, f64>("foo").is_err()); // Missing tag
     /// ```
+    #[inline]
     pub fn get_mut<'a, 'b, K, T>(&'a mut self, name: &'b K) -> Result<T, NbtReprError>
     where
         String: Borrow<K>,
@@ -921,6 +1039,7 @@ impl NbtCompound {
     ///
     /// assert!((compound.get::<_, f64>("test").unwrap() - 1.0f64).abs() < 1e-5);
     /// ```
+    #[inline]
     pub fn insert<K: Into<String>, T: Into<NbtTag>>(&mut self, name: K, value: T) {
         self.0.insert(name.into(), value.into());
     }
@@ -935,28 +1054,89 @@ impl NbtCompound {
     /// assert!(matches!(tag.get::<_, &str>("string"), Ok("Stuff")));
     /// assert_eq!(tag.get::<_, &[i32]>("list").unwrap(), vec![1,2,3,4,5].as_slice());
     /// ```
+    #[inline]
     pub fn from_snbt(input: &str) -> Result<Self, SnbtError> {
         snbt::parse(input)
+    }
+}
+
+impl IntoIterator for NbtCompound {
+    type IntoIter = <HashMap<String, NbtTag> as IntoIterator>::IntoIter;
+    type Item = (String, NbtTag);
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a NbtCompound {
+    type IntoIter = <&'a HashMap<String, NbtTag> as IntoIterator>::IntoIter;
+    type Item = (&'a String, &'a NbtTag);
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.0).into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut NbtCompound {
+    type IntoIter = <&'a mut HashMap<String, NbtTag> as IntoIterator>::IntoIter;
+    type Item = (&'a String, &'a mut NbtTag);
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        (&mut self.0).into_iter()
+    }
+}
+
+impl FromIterator<(String, NbtTag)> for NbtCompound {
+    #[inline]
+    fn from_iter<T: IntoIterator<Item = (String, NbtTag)>>(iter: T) -> Self {
+        NbtCompound(HashMap::from_iter(iter))
+    }
+}
+
+impl<Q: ?Sized> Index<&Q> for NbtCompound
+where
+    String: Borrow<Q>,
+    Q: Eq + Hash,
+{
+    type Output = NbtTag;
+
+    #[inline]
+    fn index(&self, key: &Q) -> &NbtTag {
+        &self.0[key]
     }
 }
 
 impl FromStr for NbtCompound {
     type Err = SnbtError;
 
+    #[inline]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::from_snbt(s)
     }
 }
 
 impl Display for NbtCompound {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Display::fmt(&self.to_snbt(), f)
     }
 }
 
 impl Debug for NbtCompound {
+    #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self.to_snbt(), f)
+    }
+}
+
+impl Extend<(String, NbtTag)> for NbtCompound {
+    #[inline]
+    fn extend<T: IntoIterator<Item = (String, NbtTag)>>(&mut self, iter: T) {
+        self.0.extend(iter);
     }
 }
 
@@ -996,6 +1176,7 @@ mod serde_impl {
     }
 
     impl<'de> Deserialize<'de> for NbtTag {
+        #[inline]
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: Deserializer<'de> {
             deserializer.deserialize_any(NbtTagVisitor)
@@ -1011,61 +1192,73 @@ mod serde_impl {
             write!(f, "a valid NBT type")
         }
 
+        #[inline]
         fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Byte(if v { 1 } else { 0 }))
         }
 
+        #[inline]
         fn visit_i8<E>(self, v: i8) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Byte(v))
         }
 
+        #[inline]
         fn visit_u8<E>(self, v: u8) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Byte(v as i8))
         }
 
+        #[inline]
         fn visit_i16<E>(self, v: i16) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Short(v))
         }
 
+        #[inline]
         fn visit_i32<E>(self, v: i32) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Int(v))
         }
 
+        #[inline]
         fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Long(v))
         }
 
+        #[inline]
         fn visit_f32<E>(self, v: f32) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Float(v))
         }
 
+        #[inline]
         fn visit_f64<E>(self, v: f64) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::Double(v))
         }
 
+        #[inline]
         fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
         where E: de::Error {
             self.visit_byte_buf(v.to_owned())
         }
 
+        #[inline]
         fn visit_byte_buf<E>(self, v: Vec<u8>) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::ByteArray(raw::cast_byte_buf_to_signed(v)))
         }
 
+        #[inline]
         fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::String(v.to_owned()))
         }
 
+        #[inline]
         fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
         where E: de::Error {
             Ok(NbtTag::String(v))
@@ -1151,6 +1344,7 @@ mod serde_impl {
     }
 
     impl Serialize for NbtList {
+        #[inline]
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer {
             self.0.serialize(serializer)
@@ -1158,6 +1352,7 @@ mod serde_impl {
     }
 
     impl<'de> Deserialize<'de> for NbtList {
+        #[inline]
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: Deserializer<'de> {
             Ok(NbtList(Deserialize::deserialize(deserializer)?))
@@ -1165,6 +1360,7 @@ mod serde_impl {
     }
 
     impl Serialize for NbtCompound {
+        #[inline]
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: Serializer {
             self.0.serialize(serializer)
@@ -1172,6 +1368,7 @@ mod serde_impl {
     }
 
     impl<'de> Deserialize<'de> for NbtCompound {
+        #[inline]
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where D: Deserializer<'de> {
             Ok(NbtCompound(Deserialize::deserialize(deserializer)?))

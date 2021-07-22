@@ -88,7 +88,7 @@ The [`NbtCompound`] and [`NbtList`] types are wrappers around [`HashMap`](std::c
 and [`Vec`](Vec)s respectively. Because [`NbtTag`]s obscure the type of data actually stored,
 these wrappers provide utilities for unpacking tags into concrete types. If greater functionality
 is required, then the internal collection managed by these wrappers can be accessed through
-calls to [`as_ref`](std::convert::AsRef::as_ref) and [`as_mut`](std::convert::AsMut::as_mut).
+calls to `inner`, `inner_mut`, and/or `into_inner`.
 
 ## Lists
 
@@ -222,8 +222,9 @@ assert_eq!(ex1, ex2);
 ```
 
 Currently, implementing this trait only allows for basic conversion into [`NbtTag`]s and construction
-of compounds and lists via the `clone_from_repr` methods in each. In the future, we plan to create
-a derive macro for this trait as well as to more thoroughly integrate its use into this crate.
+of compounds and lists via the `clone_from_repr` methods in each. This trait is currently deprecated
+as we plan to implement a serde-compatible serializer and deserializer which will provide the same
+functionality.
 
 [`NbtCompound`]: crate::NbtCompound
 [`NbtList`]: crate::NbtList

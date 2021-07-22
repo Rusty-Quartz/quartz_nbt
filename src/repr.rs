@@ -167,6 +167,10 @@ enum NbtStructureErrorRepr {
 /// as one as well.
 ///
 /// [`NbtCompound`]: crate::tag::NbtCompound
+#[deprecated(
+    since = "0.2.3",
+    note = "This trait will eventually be made obsolete with serde compatibility"
+)]
 pub trait NbtRepr: Sized {
     /// Updates the data in this type based on the given compound. The intention is that data is copied, not
     /// moved, from the compound to update this type.

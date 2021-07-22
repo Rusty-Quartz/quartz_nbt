@@ -904,14 +904,14 @@ fn read_bytes_from_cursor<'de, 'a: 'de>(
 ) -> Result<&'de [u8], io::Error> {
     let position = cursor.position() as usize;
     let total_len = cursor.get_ref().len();
+    let remaining = total_len.checked_sub(position).unwrap_or(0);
 
-    if len > total_len.checked_sub(position).unwrap_or(0) {
+    if len > remaining {
         return Err(io::Error::new(
             ErrorKind::UnexpectedEof,
             format!(
                 "Read of {} bytes requested but only {} remain",
-                len,
-                total_len - position
+                len, remaining
             ),
         ));
     }
