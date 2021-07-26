@@ -1,6 +1,6 @@
 [package]
 name = "quartz_nbt"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["Cassy343", "maddymakesgames"]
 edition = "2018"
 
