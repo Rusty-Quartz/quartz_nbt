@@ -43,7 +43,10 @@ pub fn read_nbt<R: Read>(
 fn read_nbt_uncompressed<R: Read>(reader: &mut R) -> Result<(NbtCompound, String), NbtIoError> {
     let root_id = raw::read_u8(reader)?;
     if root_id != 0xA {
-        return Err(NbtIoError::TagTypeMismatch(0xA, root_id));
+        return Err(NbtIoError::TagTypeMismatch {
+            expected: 0xA,
+            found: root_id
+        });
     }
 
     let root_name = raw::read_string(reader)?;
@@ -135,23 +138,11 @@ fn read_tag_body_const<R: Read, const TAG_ID: u8>(reader: &mut R) -> Result<NbtT
         }
         0xB => {
             let len = raw::read_i32(reader)? as usize;
-            let mut array = Vec::with_capacity(len);
-
-            for _ in 0 .. len {
-                array.push(raw::read_i32(reader)?);
-            }
-
-            NbtTag::IntArray(array)
+            NbtTag::IntArray(raw::read_i32_array(reader, len)?)
         }
         0xC => {
             let len = raw::read_i32(reader)? as usize;
-            let mut array = Vec::with_capacity(len);
-
-            for _ in 0 .. len {
-                array.push(raw::read_i64(reader)?);
-            }
-
-            NbtTag::LongArray(array)
+            NbtTag::LongArray(raw::read_i64_array(reader, len)?)
         }
         _ => unreachable!("read_tag_body_const called with unchecked TAG_ID"),
     };
@@ -223,13 +214,17 @@ fn write_tag_body<W: Write>(writer: &mut W, tag: &NbtTag) -> Result<(), NbtIoErr
             if value.is_empty() {
                 writer.write_all(&[raw::id_for_tag(None), 0, 0, 0, 0])?;
             } else {
-                let type_id = raw::id_for_tag(Some(&value[0]));
-                raw::write_u8(writer, type_id)?;
+                let list_type = raw::id_for_tag(Some(&value[0]));
+                raw::write_u8(writer, list_type)?;
                 raw::write_i32(writer, value.len() as i32)?;
 
                 for sub_tag in value.as_ref() {
-                    if raw::id_for_tag(Some(sub_tag)) != type_id {
-                        return Err(NbtIoError::NonHomogenousList);
+                    let tag_id = raw::id_for_tag(Some(sub_tag));
+                    if tag_id != list_type {
+                        return Err(NbtIoError::NonHomogenousList {
+                            list_type,
+                            encountered_type: tag_id
+                        });
                     }
 
                     write_tag_body(writer, sub_tag)?;
@@ -273,7 +268,12 @@ pub enum NbtIoError {
     MissingRootTag,
     /// A sequential data structure was found to be non-homogenous. All sequential structures
     /// in NBT data are homogenous.
-    NonHomogenousList,
+    NonHomogenousList {
+        /// The list type.
+        list_type: u8,
+        /// The encountered type.
+        encountered_type: u8
+    },
     /// A type requested an option to be read from a list. Since options are indicated by the
     /// absence or presence of a tag, and since all sequential types are length-prefixed,
     /// options cannot exists within arrays in NBT data.
@@ -283,7 +283,12 @@ pub enum NbtIoError {
     /// An invalid tag ID was encountered.
     InvalidTagId(u8),
     /// The first tag ID was expected, but the second was found.
-    TagTypeMismatch(u8, u8),
+    TagTypeMismatch {
+        /// The expected ID.
+        expected: u8,
+        /// The found ID.
+        found: u8
+    },
     /// A sequential type was expected, but another was found.
     ExpectedSeq,
     /// An enum representation was expected, but another was found.
@@ -292,8 +297,8 @@ pub enum NbtIoError {
     InvalidKey,
     /// An invalid enum variant was encountered.
     InvalidEnumVariant,
-    /// A non-cesu8 string was encountered.
-    NonCesu8String,
+    /// An invalid cesu8 string was encountered.
+    InvalidCesu8String,
     /// An unsupported type was passed to a serializer or queried from a deserializer.
     UnsupportedType(&'static str),
     /// A custom error message.
@@ -328,8 +333,8 @@ impl Display for NbtIoError {
             NbtIoError::StdIo(error) => write!(f, "{}", error),
             NbtIoError::MissingRootTag =>
                 write!(f, "NBT tree does not start with a valid root tag."),
-            NbtIoError::NonHomogenousList =>
-                write!(f, "Encountered non-homogenous list or sequential type"),
+            &NbtIoError::NonHomogenousList { list_type, encountered_type } =>
+                write!(f, "Encountered non-homogenous list or sequential type: expected {:X} but found {:X}", list_type, encountered_type),
             NbtIoError::OptionInList => write!(
                 f,
                 "Minecraft's NBT format cannot support options in sequential data structures"
@@ -343,7 +348,7 @@ impl Display for NbtIoError {
                 "Encountered invalid tag ID 0x{:X} during deserialization",
                 id
             ),
-            &NbtIoError::TagTypeMismatch(expected, found) => write!(
+            &NbtIoError::TagTypeMismatch { expected, found } => write!(
                 f,
                 "Tag type mismatch: expected 0x{:X} but found 0x{:X}",
                 expected, found
@@ -356,7 +361,7 @@ impl Display for NbtIoError {
             NbtIoError::InvalidKey => write!(f, "Map keys must be a valid string"),
             NbtIoError::InvalidEnumVariant =>
                 write!(f, "Encountered invalid enum variant while deserializing"),
-            NbtIoError::NonCesu8String => write!(f, "Encountered non-CESU8 string"),
+            NbtIoError::InvalidCesu8String => write!(f, "Encountered invalid CESU8 string"),
             NbtIoError::UnsupportedType(ty) =>
                 write!(f, "Type {} is not supported by Minecraft's NBT format", ty),
             NbtIoError::Custom(msg) => write!(f, "{}", msg),

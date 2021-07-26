@@ -1112,7 +1112,10 @@ impl TypeChecker for Homogenous {
                 if id == tag_id {
                     Ok(())
                 } else {
-                    Err(NbtIoError::NonHomogenousList)
+                    Err(NbtIoError::NonHomogenousList {
+                        list_type: id,
+                        encountered_type: tag_id
+                    })
                 },
             None => {
                 self.id.set(Some(tag_id));

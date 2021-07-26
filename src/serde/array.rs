@@ -18,7 +18,7 @@ pub(crate) const LONG_ARRAY_NICHE: &str = "l_quartz_nbt_array";
 
 /// A transparent wrapper around sequential types to allow the NBT serializer to automatically
 /// select an appropriate array type, favoring specialized array types like [`IntArray`] and
-/// [`ByteArray`].
+/// [`ByteArray`]. You can construct an array using `Array::from`.
 ///
 /// Currently this type can only wrap vectors, slices, and arrays, however homogenous tuples may
 /// be supported in the future.
@@ -42,7 +42,7 @@ impl<T: Serialize + ArrayNiche> Serialize for Array<T> {
     #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where S: serde::Serializer {
-        serializer.serialize_newtype_struct(T::niche(), self.0.as_ser_repr())
+        serializer.serialize_newtype_struct(T::NICHE, self.0.as_ser_repr())
     }
 }
 
@@ -65,7 +65,7 @@ impl<'de, T: Deserialize<'de> + ArrayNiche> Deserialize<'de> for Array<T> {
             }
         }
 
-        deserializer.deserialize_newtype_struct(T::niche(), Visitor(PhantomData))
+        deserializer.deserialize_newtype_struct(T::NICHE, Visitor(PhantomData))
     }
 }
 
@@ -108,8 +108,7 @@ where T: ArrayNiche
 
 pub trait ArrayNiche {
     type SerRepr: ?Sized + Serialize;
-
-    fn niche() -> &'static str;
+    const NICHE: &'static str;
 
     fn as_ser_repr(&self) -> &Self::SerRepr;
 }
@@ -119,10 +118,7 @@ where T: ArrayNiche + ?Sized
 {
     type SerRepr = T::SerRepr;
 
-    #[inline]
-    fn niche() -> &'static str {
-        T::niche()
-    }
+    const NICHE: &'static str = T::NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -135,10 +131,7 @@ where T: ArrayNiche + ?Sized
 {
     type SerRepr = T::SerRepr;
 
-    #[inline]
-    fn niche() -> &'static str {
-        T::niche()
-    }
+    const NICHE: &'static str = T::NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -149,10 +142,7 @@ where T: ArrayNiche + ?Sized
 impl ArrayNiche for Vec<i8> {
     type SerRepr = [u8];
 
-    #[inline]
-    fn niche() -> &'static str {
-        BYTE_ARRAY_NICHE
-    }
+    const NICHE: &'static str = BYTE_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -163,10 +153,7 @@ impl ArrayNiche for Vec<i8> {
 impl ArrayNiche for Vec<u8> {
     type SerRepr = [u8];
 
-    #[inline]
-    fn niche() -> &'static str {
-        BYTE_ARRAY_NICHE
-    }
+    const NICHE: &'static str = BYTE_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -177,10 +164,7 @@ impl ArrayNiche for Vec<u8> {
 impl ArrayNiche for Vec<i32> {
     type SerRepr = [i32];
 
-    #[inline]
-    fn niche() -> &'static str {
-        INT_ARRAY_NICHE
-    }
+    const NICHE: &'static str = INT_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -191,10 +175,7 @@ impl ArrayNiche for Vec<i32> {
 impl ArrayNiche for Vec<i64> {
     type SerRepr = [i64];
 
-    #[inline]
-    fn niche() -> &'static str {
-        LONG_ARRAY_NICHE
-    }
+    const NICHE: &'static str = LONG_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -205,10 +186,7 @@ impl ArrayNiche for Vec<i64> {
 impl ArrayNiche for [i8] {
     type SerRepr = [u8];
 
-    #[inline]
-    fn niche() -> &'static str {
-        BYTE_ARRAY_NICHE
-    }
+    const NICHE: &'static str = BYTE_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -219,10 +197,7 @@ impl ArrayNiche for [i8] {
 impl ArrayNiche for [u8] {
     type SerRepr = [u8];
 
-    #[inline]
-    fn niche() -> &'static str {
-        BYTE_ARRAY_NICHE
-    }
+    const NICHE: &'static str = BYTE_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -233,10 +208,7 @@ impl ArrayNiche for [u8] {
 impl ArrayNiche for [i32] {
     type SerRepr = [i32];
 
-    #[inline]
-    fn niche() -> &'static str {
-        INT_ARRAY_NICHE
-    }
+    const NICHE: &'static str = INT_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -247,10 +219,7 @@ impl ArrayNiche for [i32] {
 impl ArrayNiche for [i64] {
     type SerRepr = [i64];
 
-    #[inline]
-    fn niche() -> &'static str {
-        LONG_ARRAY_NICHE
-    }
+    const NICHE: &'static str = LONG_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -261,10 +230,7 @@ impl ArrayNiche for [i64] {
 impl<const N: usize> ArrayNiche for [i8; N] {
     type SerRepr = [u8];
 
-    #[inline]
-    fn niche() -> &'static str {
-        BYTE_ARRAY_NICHE
-    }
+    const NICHE: &'static str = BYTE_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -276,10 +242,7 @@ impl<const N: usize> ArrayNiche for [i8; N] {
 impl<const N: usize> ArrayNiche for [u8; N] {
     type SerRepr = [u8];
 
-    #[inline]
-    fn niche() -> &'static str {
-        BYTE_ARRAY_NICHE
-    }
+    const NICHE: &'static str = BYTE_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -290,10 +253,7 @@ impl<const N: usize> ArrayNiche for [u8; N] {
 impl<const N: usize> ArrayNiche for [i32; N] {
     type SerRepr = [i32];
 
-    #[inline]
-    fn niche() -> &'static str {
-        INT_ARRAY_NICHE
-    }
+    const NICHE: &'static str = INT_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {
@@ -304,10 +264,7 @@ impl<const N: usize> ArrayNiche for [i32; N] {
 impl<const N: usize> ArrayNiche for [i64; N] {
     type SerRepr = [i64];
 
-    #[inline]
-    fn niche() -> &'static str {
-        LONG_ARRAY_NICHE
-    }
+    const NICHE: &'static str = LONG_ARRAY_NICHE;
 
     #[inline]
     fn as_ser_repr(&self) -> &Self::SerRepr {

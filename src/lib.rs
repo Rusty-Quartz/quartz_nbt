@@ -1,5 +1,4 @@
-#![deny(rust_2018_idioms)]
-#![warn(missing_debug_implementations, missing_docs)]
+#![warn(rust_2018_idioms, missing_debug_implementations, missing_docs)]
 
 /*!
 Provides support for encoding and decoding Minecraft's NBT format. This crate supports both
@@ -176,56 +175,6 @@ const SNBT: &str = "{short: -10s, string: fizzbuzz, array: [L; 1, 1, 2, 3, 5]}";
 assert_eq!(compound, snbt::parse(SNBT).unwrap());
 ```
 
-# NBT Representation
-
-The [`NbtRepr`] trait allows for custom types to be convertible into [`NbtTag`]s by defining
-methods for writing and reading to and from an [`NbtCompound`].
-
-```
-# use quartz_nbt::*;
-#[derive(Debug, PartialEq, Eq)]
-struct Example {
-    name: String,
-    value: i32
-}
-
-impl NbtRepr for Example {
-    fn read_nbt(&mut self, nbt: &NbtCompound) -> Result<(), NbtReprError> {
-        self.name = nbt.get::<_, &str>("name")?.to_owned();
-        self.value = nbt.get("value")?;
-        Ok(())
-    }
-
-    fn write_nbt(&self, nbt: &mut NbtCompound) {
-        nbt.insert("name", &self.name);
-        nbt.insert("value", self.value);
-    }
-}
-
-let ex1 = Example {
-    name: "foo".to_owned(),
-    value: 10
-};
-
-let mut nbt = NbtCompound::new();
-nbt.insert("name", "foo");
-nbt.insert("value", 10);
-
-let mut ex2 = Example {
-    name: "".to_owned(),
-    value: 0
-};
-ex2.read_nbt(&nbt);
-
-assert_eq!(ex1.to_nbt(), nbt);
-assert_eq!(ex1, ex2);
-```
-
-Currently, implementing this trait only allows for basic conversion into [`NbtTag`]s and construction
-of compounds and lists via the `clone_from_repr` methods in each. This trait is currently deprecated
-as we plan to implement a serde-compatible serializer and deserializer which will provide the same
-functionality.
-
 [`NbtCompound`]: crate::NbtCompound
 [`NbtList`]: crate::NbtList
 [`NbtRepr`]: crate::NbtRepr
@@ -242,6 +191,217 @@ mod raw;
 mod repr;
 /// When the `serde` feature is enabled, this module provides `Serializer` and `Deserializer`
 /// implementations to link this crate into the serde data model.
+/// 
+/// # Example
+///
+/// ```
+/// # extern crate serde;
+/// # use serde::{Serialize, Deserialize};
+/// use quartz_nbt::{
+///     io::Flavor,
+///     serde::{serialize, deserialize}
+/// };
+/// 
+/// #[derive(Serialize, Deserialize, PartialEq, Debug)]
+/// pub struct Entity {
+///     name: String,
+///     health: f32,
+///     position: (f64, f64)
+/// }
+///
+/// let entity = Entity {
+///     name: "Ferris".to_owned(),
+///     health: 100.0,
+///     position: (1.0, -2.0)
+/// };
+///
+/// let serialized: Vec<u8> = serialize(
+///     &entity,
+///     None, // Name of the root tag
+///     Flavor::Uncompressed
+/// ).unwrap();
+/// let (deserialized, _root_name) = deserialize(
+///     &serialized,
+///     Flavor::Uncompressed
+/// ).unwrap();
+///
+/// assert_eq!(entity, deserialized);
+/// ```
+///
+/// # Arrays
+///
+/// By default, all sequential types (vectors, arrays, tuples, etc.) are serialized as tag lists.
+/// If you wish to have a type serialized as a byte array, int array, or long array, you can
+/// opt-into that by wrapping the type in [`Array`]. An example is shown below.
+///
+/// ```
+/// # extern crate serde;
+/// # use serde::{Serialize, Deserialize};
+/// use quartz_nbt::{
+///     compound,
+///     io::{self, Flavor},
+///     serde::{Array, serialize}
+/// };
+/// use std::io::Cursor;
+///
+/// #[derive(Serialize)]
+/// struct Arrays {
+///     int_array: Array<Vec<i32>>,
+///     bytes: Array<[i8; 3]>
+/// }
+///
+/// let arrays = Arrays {
+///     int_array: Array::from(vec![1i32, -2i32, 3i32]),
+///     bytes: Array::from([-32i8, -64, -128])
+/// };
+///
+/// let repr = compound! {
+///     "int_array": [I; 1, -2, 3],
+///     "bytes": [B; -32, -64, -128]
+/// };
+///
+/// let serialized: Vec<u8> = serialize(
+///     &arrays,
+///     None,
+///     Flavor::Uncompressed
+/// ).unwrap();
+///
+/// assert_eq!(
+///     repr,
+///     io::read_nbt(&mut Cursor::new(serialized), Flavor::Uncompressed).unwrap().0
+/// );
+/// ```
+///
+/// # Enum Representation
+///
+/// All enum types can be represented in NBT, however not all types are efficiently representable.
+/// Unit variants are serialized according to their index in the enum, while all other variant
+/// types are serialized as compounds. Although we do not currently support serializing unit
+/// variants by name, we will likely add this feature in future versions, and already support
+/// deserializing unit variants by name.
+///
+/// ```
+/// # extern crate serde;
+/// # use serde::{Serialize, Deserialize};
+/// use quartz_nbt::{
+///     compound,
+///     io::{self, Flavor},
+///     serde::serialize
+/// };
+/// use std::io::Cursor;
+/// 
+/// #[derive(Serialize)]
+/// enum MyEnum {
+///     Unit,
+///     Newtype(i32),
+///     Tuple(String, String),
+///     Struct {
+///         a: i32,
+///         b: f32
+///     }
+/// }
+///
+/// #[derive(Serialize)]
+/// struct AllVariants {
+///     unit: MyEnum,
+///     newtype: MyEnum,
+///     tuple: MyEnum,
+///     strukt: MyEnum
+/// }
+///
+/// let data = AllVariants {
+///     unit: MyEnum::Unit,
+///     newtype: MyEnum::Newtype(10),
+///     tuple: MyEnum::Tuple("foo".to_owned(), "bar".to_owned()),
+///     strukt: MyEnum::Struct {
+///         a: -1,
+///         b: 4.669201
+///     }
+/// };
+///
+/// let repr = compound! {
+///     "unit": 0i32,
+///     "newtype": {
+///         "Newtype": 10i32
+///     },
+///     "tuple": {
+///         "Tuple": ["foo", "bar"]
+///     },
+///     "strukt": {
+///         "Struct": {
+///             "a": -1i32,
+///             "b": 4.669201f32
+///         }
+///     }
+/// };
+///
+/// let serialized: Vec<u8> = serialize(
+///     &data,
+///     None,
+///     Flavor::Uncompressed
+/// ).unwrap();
+///
+/// assert_eq!(
+///     repr,
+///     io::read_nbt(&mut Cursor::new(serialized), Flavor::Uncompressed).unwrap().0
+/// );
+/// ```
+///
+/// # Borrowing Data
+///
+/// With some inventive coding techniques, we were able to allow for borrowing data during
+/// deserialization, for free, without significantly changing the original serde API. This feature
+/// can only be taken advantage of by using [`deserialize_from_buffer`], which requires that the
+/// input is in the form of a slice of uncompressed, binary NBT data.
+///
+/// Note that although you can borrow bytes for free, because NBT uses Java's CESU-8 encoding,
+/// attempting to borrow a string may fail if it is not UTF-8, hence it is recommended to use
+/// a [`Cow`] with the attribute `#[serde(borrow)]` in case the string needs to be re-encoded into
+/// an owned value.
+///
+/// ```
+/// # extern crate serde;
+/// # use serde::Deserialize;
+/// use quartz_nbt::{
+///     compound,
+///     io::{self, Flavor},
+///     serde::deserialize_from_buffer
+/// };
+/// use std::{
+///     borrow::Cow,
+///     io::Cursor
+/// };
+///
+/// #[derive(Deserialize, PartialEq, Debug)]
+/// struct Borrowed<'a> {
+///     bytes: &'a [u8], // Bytes must be borrowed as unsigned
+///     #[serde(borrow)]
+///     string: Cow<'a, str>
+/// }
+///
+/// let repr = compound! {
+///     "bytes": [B; 2, 3, 5, 7, 11],
+///     "string": "this is utf-8"
+/// };
+///
+/// let mut bin_nbt = Cursor::new(Vec::<u8>::new());
+/// io::write_nbt(&mut bin_nbt, None, &repr, Flavor::Uncompressed).unwrap();
+/// let bin_nbt = bin_nbt.into_inner();
+///
+/// const PRIMES: &[u8] = &[2, 3, 5, 7, 11];
+///
+/// assert_eq!(
+///     deserialize_from_buffer::<Borrowed<'_>>(&bin_nbt).unwrap().0,
+///     Borrowed {
+///         bytes: PRIMES,
+///         string: Cow::Borrowed("this is utf-8")
+///     }
+/// );
+/// ```
+///
+/// [`Array`]: crate::serde::Array
+/// [`Cow`]: std::borrow::Cow
+/// [`deserialize_from_buffer`]: crate::serde::deserialize_from_buffer
 #[cfg(feature = "serde")]
 #[allow(missing_debug_implementations)]
 pub mod serde;

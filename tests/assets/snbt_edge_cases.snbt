@@ -25,5 +25,9 @@
     empty_tag_array: [],
     chaotic_array: [[[i;]], [[l;10]], [[b;], [b;1,2,3]], [{foo:{bar:[baz, buz]}, .{}:{}}], [0d, 0.0]],
     nested_compounds: {c1:{c2:{c3:{c4:{c5:{this is a key: and [ this }{] '}' is { \'heh\' a \"lol"}"\"}'"'}"'" value    
-	    }}}, a:b}}}
+	    }}}, a:b}}},
+    'quoted "key\"': "quoted 'value'",
+    "redundant": "quotes",
+    'more_redundant': 'quotes',
+    "escape sequences": "\'\\\r\n\t\u00A7\u0F63"
 }

@@ -2,7 +2,7 @@ use crate::{io::NbtIoError, NbtTag};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use std::{
     io::{Read, Result, Write},
-    mem::ManuallyDrop,
+    mem::{self, ManuallyDrop},
     result::Result as StdResult,
     slice,
 };
@@ -79,7 +79,7 @@ pub fn read_string<R: Read>(reader: &mut R) -> StdResult<String, NbtIoError> {
 
     let java_decoded = match cesu8::from_java_cesu8(&bytes) {
         Ok(string) => string,
-        Err(_) => return Err(NbtIoError::NonCesu8String),
+        Err(_) => return Err(NbtIoError::InvalidCesu8String),
     };
 
     Ok(java_decoded.into_owned())
@@ -95,7 +95,7 @@ pub fn read_string_into<'a, R: Read>(
     reader.read_exact(dest)?;
     match cesu8::from_java_cesu8(dest) {
         Ok(string) => Ok(string),
-        Err(_) => return Err(NbtIoError::NonCesu8String),
+        Err(_) => return Err(NbtIoError::InvalidCesu8String),
     }
 }
 
@@ -184,7 +184,7 @@ pub fn cast_byte_buf_to_unsigned(buf: Vec<i8>) -> Vec<u8> {
 // Currently unused, but might be used later
 #[inline]
 #[allow(dead_code)]
-pub fn cast_bytes_to_signed<'a>(bytes: &'a [u8]) -> &'a [i8] {
+pub fn cast_bytes_to_signed(bytes: &[u8]) -> &[i8] {
     let data = bytes.as_ptr() as *const i8;
     let len = bytes.len();
 
@@ -200,7 +200,7 @@ pub fn cast_bytes_to_signed<'a>(bytes: &'a [u8]) -> &'a [i8] {
 }
 
 #[inline]
-pub fn cast_bytes_to_unsigned<'a>(bytes: &'a [i8]) -> &'a [u8] {
+pub fn cast_bytes_to_unsigned(bytes: &[i8]) -> &[u8] {
     let data = bytes.as_ptr() as *const u8;
     let len = bytes.len();
 
@@ -213,4 +213,105 @@ pub fn cast_bytes_to_unsigned<'a>(bytes: &'a [i8]) -> &'a [u8] {
     // * The constructed reference adopts the lifetime of the provided reference
     // * `len` <= isize::MAX because `len` came from a valid slice
     unsafe { slice::from_raw_parts(data, len) }
+}
+
+#[inline]
+pub fn read_i32_array<R: Read>(reader: &mut R, len: usize) -> Result<Vec<i32>> {
+    // Benchmark heuristics suggest that this is a good cutoff length
+    if len < 50 {
+        let mut buf = [0u8; 4];
+        let mut dest = Vec::with_capacity(len);
+
+        for _ in 0 .. len {
+            reader.read_exact(&mut buf)?;
+            dest.push(i32::from_be_bytes(buf));
+        }
+
+        Ok(dest)
+    } else {
+        let mut bytes = ManuallyDrop::new(vec![0i32; len]);
+
+        let ptr = bytes.as_mut_ptr() as *mut u8;
+        let length = bytes.len() * 4;
+        let capacity = bytes.capacity() * 4;
+        
+        let mut bytes = unsafe { Vec::from_raw_parts(ptr, length, capacity) };
+
+        reader.read_exact(&mut bytes)?;
+
+        // Safety: the length of the vec is a multiple of 4, and the alignment is 4
+        Ok(unsafe { convert_be_i32_array_in_place(bytes) })
+    }
+}
+
+#[inline]
+pub fn read_i64_array<R: Read>(reader: &mut R, len: usize) -> Result<Vec<i64>> {
+    if len < 60 {
+        let mut buf = [0u8; 8];
+        let mut dest = Vec::with_capacity(len);
+
+        for _ in 0 .. len {
+            reader.read_exact(&mut buf)?;
+            dest.push(i64::from_be_bytes(buf));
+        }
+
+        Ok(dest)
+    } else {
+        let mut bytes = ManuallyDrop::new(vec![0i64; len]);
+
+        let ptr = bytes.as_mut_ptr() as *mut u8;
+        let length = bytes.len() * 8;
+        let capacity = bytes.capacity() * 8;
+        
+        let mut bytes = unsafe { Vec::from_raw_parts(ptr, length, capacity) };
+        
+        reader.read_exact(&mut bytes)?;
+
+        // Safety: the length of the vec is a multiple of 8, and the alignment is 8
+        Ok(unsafe { convert_be_i64_array_in_place(bytes) })
+    }
+}
+
+#[inline]
+unsafe fn convert_be_i32_array_in_place(mut bytes: Vec<u8>) -> Vec<i32> {
+    let mut buf = [0u8; 4];
+    let mut i = 0;
+
+    while i < bytes.len() {
+        buf.copy_from_slice(&bytes[i .. i + 4]);
+        buf = mem::transmute(i32::from_be_bytes(buf));
+        (&mut bytes[i .. i + 4]).copy_from_slice(&buf);
+        i += 4;
+    }
+
+    let mut me = ManuallyDrop::new(bytes);
+
+    let ptr = me.as_mut_ptr() as *mut i32;
+    let length = me.len();
+    let capacity = me.capacity();
+
+    Vec::from_raw_parts(ptr, length / 4, capacity / 4)
+}
+
+#[inline]
+unsafe fn convert_be_i64_array_in_place(mut bytes: Vec<u8>) -> Vec<i64> {
+    bytes.shrink_to_fit();
+
+    let mut buf = [0u8; 8];
+    let mut i = 0;
+
+    while i < bytes.len() {
+        buf.copy_from_slice(&bytes[i .. i + 8]);
+        buf = mem::transmute(i64::from_be_bytes(buf));
+        (&mut bytes[i .. i + 8]).copy_from_slice(&buf);
+        i += 8;
+    }
+
+    let mut me = ManuallyDrop::new(bytes);
+
+    let ptr = me.as_mut_ptr() as *mut i64;
+    let length = me.len();
+    let capacity = me.capacity();
+
+    Vec::from_raw_parts(ptr, length / 8, capacity / 8)
 }

@@ -179,7 +179,7 @@ impl NbtTag {
     pub fn string_to_snbt(string: &str) -> String {
         // Determine the best option for the surrounding quotes to minimize escape sequences
         let surrounding: char;
-        if string.contains("\"") {
+        if string.contains('"') {
             surrounding = '\'';
         } else {
             surrounding = '"';
@@ -319,11 +319,11 @@ impl TryFrom<&NbtTag> for bool {
     type Error = NbtStructureError;
 
     fn try_from(tag: &NbtTag) -> Result<Self, Self::Error> {
-        match tag {
-            &NbtTag::Byte(value) => Ok(value != 0),
-            &NbtTag::Short(value) => Ok(value != 0),
-            &NbtTag::Int(value) => Ok(value != 0),
-            &NbtTag::Long(value) => Ok(value != 0),
+        match *tag {
+            NbtTag::Byte(value) => Ok(value != 0),
+            NbtTag::Short(value) => Ok(value != 0),
+            NbtTag::Int(value) => Ok(value != 0),
+            NbtTag::Long(value) => Ok(value != 0),
             _ => Err(NbtStructureError::type_mismatch(
                 "Byte, Short, Int, or Long",
                 tag.tag_name(),
@@ -337,8 +337,8 @@ impl TryFrom<&NbtTag> for u8 {
 
     #[inline]
     fn try_from(tag: &NbtTag) -> Result<Self, Self::Error> {
-        match tag {
-            &NbtTag::Byte(value) => Ok(value as u8),
+        match *tag {
+            NbtTag::Byte(value) => Ok(value as u8),
             _ => Err(NbtStructureError::type_mismatch("Byte", tag.tag_name())),
         }
     }
@@ -540,7 +540,7 @@ impl NbtList {
     #[inline]
     #[deprecated(
         since = "0.2.3",
-        note = "This trait will eventually be made obsolete with serde compatibility"
+        note = "This method will eventually be made obsolete with serde compatibility"
     )]
     #[allow(deprecated)]
     pub fn clone_repr_from<'a, T, L>(list: L) -> Self
@@ -633,7 +633,7 @@ impl NbtList {
         T::try_from(
             self.0
                 .get(index)
-                .ok_or(NbtStructureError::invalid_index(index, self.len()))?,
+                .ok_or_else(|| NbtStructureError::invalid_index(index, self.len()))?,
         )
         .map_err(NbtReprError::from_any)
     }
@@ -662,7 +662,7 @@ impl NbtList {
         T::try_from(
             self.0
                 .get_mut(index)
-                .ok_or(NbtStructureError::invalid_index(index, len))?,
+                .ok_or_else(|| NbtStructureError::invalid_index(index, len))?,
         )
         .map_err(NbtReprError::from_any)
     }
@@ -682,6 +682,13 @@ impl NbtList {
     #[inline]
     pub fn push<T: Into<NbtTag>>(&mut self, value: T) {
         self.0.push(value.into());
+    }
+}
+
+impl Default for NbtList {
+    #[inline]
+    fn default() -> Self {
+        NbtList::new()
     }
 }
 
@@ -708,7 +715,7 @@ impl<'a> IntoIterator for &'a NbtList {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        (&self.0).into_iter()
+        self.0.iter()
     }
 }
 
@@ -718,7 +725,7 @@ impl<'a> IntoIterator for &'a mut NbtList {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        (&mut self.0).into_iter()
+        self.0.iter_mut()
     }
 }
 
@@ -876,7 +883,7 @@ impl NbtCompound {
     #[inline]
     #[deprecated(
         since = "0.2.3",
-        note = "This trait will eventually be made obsolete with serde compatibility"
+        note = "This method will eventually be made obsolete with serde compatibility"
     )]
     #[allow(deprecated)]
     pub fn clone_repr_from<'a, K, V, M>(map: &'a M) -> Self
@@ -975,7 +982,7 @@ impl NbtCompound {
         T::try_from(
             self.0
                 .get(name)
-                .ok_or(NbtStructureError::missing_tag(name))?,
+                .ok_or_else(|| NbtStructureError::missing_tag(name))?,
         )
         .map_err(NbtReprError::from_any)
     }
@@ -1006,7 +1013,7 @@ impl NbtCompound {
         T::try_from(
             self.0
                 .get_mut(name)
-                .ok_or(NbtStructureError::missing_tag(name))?,
+                .ok_or_else(|| NbtStructureError::missing_tag(name))?,
         )
         .map_err(NbtReprError::from_any)
     }
@@ -1060,6 +1067,13 @@ impl NbtCompound {
     }
 }
 
+impl Default for NbtCompound {
+    #[inline]
+    fn default() -> Self {
+        NbtCompound::new()
+    }
+}
+
 impl IntoIterator for NbtCompound {
     type IntoIter = <HashMap<String, NbtTag> as IntoIterator>::IntoIter;
     type Item = (String, NbtTag);
@@ -1076,7 +1090,7 @@ impl<'a> IntoIterator for &'a NbtCompound {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        (&self.0).into_iter()
+        self.0.iter()
     }
 }
 
@@ -1086,7 +1100,7 @@ impl<'a> IntoIterator for &'a mut NbtCompound {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        (&mut self.0).into_iter()
+        self.0.iter_mut()
     }
 }
 

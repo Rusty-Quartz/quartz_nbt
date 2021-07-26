@@ -114,8 +114,8 @@ impl NbtStructureError {
     pub(crate) fn type_mismatch(expected: &'static str, found: &'static str) -> Self {
         NbtStructureError {
             repr: NbtStructureErrorRepr::TypeMismatch {
-                expected: Box::new(expected),
-                found: Box::new(found),
+                expected,
+                found,
             },
         }
     }
@@ -154,10 +154,9 @@ enum NbtStructureErrorRepr {
         index: usize,
         length: usize,
     },
-    // Keep the size of this type down to that of a wide pointer
     TypeMismatch {
-        expected: Box<&'static str>,
-        found: Box<&'static str>,
+        expected: &'static str,
+        found: &'static str,
     },
 }
 

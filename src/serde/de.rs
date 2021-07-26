@@ -68,12 +68,12 @@ where
             return Err(NbtIoError::MissingRootTag);
         }
 
-        let root_name_len = raw::read_i16(reader)? as usize;
+        let root_name_len = raw::read_u16(reader)? as usize;
         let bytes = read_bytes_from_cursor(reader, root_name_len)?;
 
         let root_name = match cesu8::from_java_cesu8(bytes) {
             Ok(string) => string,
-            Err(_) => return Err(NbtIoError::NonCesu8String),
+            Err(_) => return Err(NbtIoError::InvalidCesu8String),
         };
 
         Ok((
@@ -310,7 +310,10 @@ where
         if TAG_ID == 0xA {
             visitor.visit_map(DeserializeMap::<_, B>::new(self.reader))
         } else {
-            Err(NbtIoError::TagTypeMismatch(0xA, TAG_ID))
+            Err(NbtIoError::TagTypeMismatch {
+                expected: 0xA,
+                found: TAG_ID
+            })
         }
     }
 }
@@ -640,7 +643,7 @@ where
 
                 let string = match cesu8::from_java_cesu8(bytes) {
                     Ok(string) => string,
-                    Err(_) => return Err(NbtIoError::NonCesu8String),
+                    Err(_) => return Err(NbtIoError::InvalidCesu8String),
                 };
 
                 match string {
@@ -768,6 +771,12 @@ where
                     .ok_or(NbtIoError::InvalidEnumVariant)?
                     .into_deserializer(),
             ),
+            0x8 => {
+                let mut dest = Vec::new();
+                visitor.visit_enum(
+                    raw::read_string_into(self.reader, &mut dest)?.into_deserializer()
+                )
+            }
             // Newtype, tuple, and struct variants
             0xA => {
                 let id = raw::read_u8(self.reader)?;
@@ -787,7 +796,10 @@ where
 
                 let end = raw::read_u8(self.reader)?;
                 if end != 0x0 {
-                    return Err(NbtIoError::TagTypeMismatch(0x0, end));
+                    return Err(NbtIoError::TagTypeMismatch {
+                        expected: 0x0,
+                        found: end
+                    });
                 }
 
                 Ok(result)
@@ -877,9 +889,9 @@ unsafe impl BufferSpecialization<'static> for Unbuffered {
 }
 
 pub struct BufferedCursor<'buffer> {
-    // FIXME: does this need to be invariant over 'buffer? This lifetime is ripped out of the type
-    // `&'_ mut Cursor<&'buffer [u8]>`, so maybe not
-    _invariant: PhantomData<&'buffer mut ()>,
+    // We are essentially a function which takes a slice and returns a sub-slice, so we need to
+    // act like that
+    _phantom: PhantomData<fn(&'buffer [u8])>,
 }
 
 unsafe impl<'buffer> BufferSpecialization<'buffer> for BufferedCursor<'buffer> {

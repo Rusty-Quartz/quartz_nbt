@@ -2,16 +2,9 @@
 
 mod assets;
 use assets::*;
-use quartz_nbt::{
-    compound,
-    io::{self, Flavor},
-    serde::{deserialize, deserialize_from_buffer, serialize, Array},
-    NbtCompound,
-    NbtList,
-    NbtTag,
-};
+use quartz_nbt::{NbtCompound, NbtList, NbtTag, compound, io::{self, Flavor}, serde::{Array, deserialize, deserialize_from, deserialize_from_buffer, serialize}};
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, io::Cursor};
+use std::{collections::HashMap, convert::TryInto, io::{Cursor, Seek, SeekFrom}};
 
 #[derive(Serialize, Deserialize, PartialEq)]
 struct Level {
@@ -331,6 +324,27 @@ fn enum_serde() {
         .unwrap()
         .0;
     assert_eq!(deserialized_struct, test_struct);
+
+    #[derive(PartialEq, Deserialize, Debug)]
+    struct DeserializeByName {
+        enums: Vec<A>
+    }
+
+    let deserialize_by_name = DeserializeByName {
+        enums: vec![A::G, A::E, A::F]
+    };
+
+    let deserialize_by_name_nbt = compound! {
+        "enums": ["G", "E", "F"]
+    };
+
+    let mut serialized_struct = Cursor::new(Vec::<u8>::new());
+    io::write_nbt(&mut serialized_struct, None, &deserialize_by_name_nbt, Flavor::Uncompressed).unwrap();
+    serialized_struct.seek(SeekFrom::Start(0)).unwrap();
+
+    let deserialized_struct: DeserializeByName = deserialize_from(&mut serialized_struct, Flavor::Uncompressed).unwrap().0;
+
+    assert_eq!(deserialize_by_name, deserialized_struct);
 }
 
 #[test]
@@ -672,7 +686,6 @@ fn vec_serde() {
                 ]
             ]
         },
-        // Make sure all empty lists coerce to the same type
         "empty_byte_array": [B;],
         "empty_int_array": [I;],
         "empty_long_array": [L;],

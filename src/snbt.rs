@@ -50,8 +50,8 @@ pub fn parse<T: AsRef<str> + ?Sized>(string_nbt: &T) -> Result<NbtCompound, Snbt
 }
 
 // Parses the next value in the token stream
-fn parse_next_value<'a>(
-    tokens: &mut Lexer<'a>,
+fn parse_next_value(
+    tokens: &mut Lexer<'_>,
     delimiter: Option<fn(char) -> bool>,
 ) -> Result<NbtTag, SnbtError> {
     let token = tokens.next(delimiter).transpose()?;
@@ -59,29 +59,28 @@ fn parse_next_value<'a>(
 }
 
 // Parses a token into a value
-fn parse_value<'a>(tokens: &mut Lexer<'a>, token: Option<TokenData>) -> Result<NbtTag, SnbtError> {
+fn parse_value(tokens: &mut Lexer<'_>, token: Option<TokenData>) -> Result<NbtTag, SnbtError> {
     match token {
         // Open curly brace indicates a compound tag is present
+        #[rustfmt::skip]
         Some(
-            td
-            @ TokenData {
+            td @ TokenData {
                 token: Token::OpenCurly,
                 ..
             },
         ) => parse_compound_tag(tokens, &td).map(Into::into),
 
         // Open square brace indicates that some kind of list is present
+        #[rustfmt::skip]
         Some(
-            td
-            @
-            TokenData {
+            td @ TokenData {
                 token: Token::OpenSquare,
                 ..
             },
         ) => parse_list(tokens, &td),
 
         // Could be a value token or delimiter token
-        Some(td @ _) => match td.into_tag() {
+        Some(td) => match td.into_tag() {
             Ok(tag) => Ok(tag),
             Err(td) => Err(SnbtError::unexpected_token(tokens.raw, Some(&td), "value")),
         },
@@ -92,7 +91,7 @@ fn parse_value<'a>(tokens: &mut Lexer<'a>, token: Option<TokenData>) -> Result<N
 }
 
 // Parses a list, which can be either a generic tag list or vector of primitives
-fn parse_list<'a>(tokens: &mut Lexer<'a>, open_square: &TokenData) -> Result<NbtTag, SnbtError> {
+fn parse_list(tokens: &mut Lexer<'_>, open_square: &TokenData) -> Result<NbtTag, SnbtError> {
     const DELIMITER: Option<fn(char) -> bool> = Some(|ch| matches!(ch, ',' | ']' | ';'));
 
     match tokens.next(DELIMITER).transpose()? {
@@ -152,7 +151,7 @@ fn parse_list<'a>(tokens: &mut Lexer<'a>, open_square: &TokenData) -> Result<Nbt
         }
 
         // Any other pattern is delegated to the general tag list parser
-        td @ _ => {
+        td => {
             let first_element = parse_value(tokens, td)?;
             parse_tag_list(tokens, first_element).map(Into::into)
         }
@@ -190,7 +189,7 @@ where
             }) => comma = Some(index),
 
             // Attempt to convert the token into a value
-            Some(td @ _) => {
+            Some(td) => {
                 // Make sure a value was expected
                 match comma {
                     Some(_) => {
@@ -221,7 +220,7 @@ where
     }
 }
 
-fn parse_tag_list<'a>(tokens: &mut Lexer<'a>, first_element: NbtTag) -> Result<NbtList, SnbtError> {
+fn parse_tag_list(tokens: &mut Lexer<'_>, first_element: NbtTag) -> Result<NbtList, SnbtError> {
     const DELIMITER: Option<fn(char) -> bool> = Some(|ch| ch == ',' || ch == ']');
 
     // Construct the list and use the first element to determine the list's type
@@ -262,7 +261,7 @@ fn parse_tag_list<'a>(tokens: &mut Lexer<'a>, first_element: NbtTag) -> Result<N
             }
 
             // Some invalid token
-            td @ _ =>
+            td =>
                 return Err(SnbtError::unexpected_token(
                     tokens.raw,
                     td.as_ref(),
@@ -331,7 +330,7 @@ fn parse_compound_tag<'a>(
             }) => comma = Some(index),
 
             // Catch-all for unexpected tokens
-            Some(td @ _) =>
+            Some(td) =>
                 return Err(SnbtError::unexpected_token(
                     tokens.raw,
                     Some(&td),
@@ -379,10 +378,9 @@ impl<'a> Lexer<'a> {
         delimiter: Option<fn(char) -> bool>,
     ) -> Option<Result<TokenData, SnbtError>> {
         // Manage the peeking function
-        match self.peeked.take() {
-            Some(item) => return item,
-            None => {}
-        };
+        if let Some(item) = self.peeked.take() {
+            return item;
+        }
 
         // Skip whitespace
         while self.peek_ch()?.is_ascii_whitespace() {
@@ -579,9 +577,12 @@ impl<'a> Lexer<'a> {
 
                                 let mut buffer = [0u8; 4];
                                 for by in buffer.iter_mut() {
+                                    // The function call is cheap and will probably be inlined
+                                    #[allow(clippy::or_fun_call)]
                                     let ch = self.next_ch().ok_or(SnbtError::unexpected_eos(
                                         "four-character hex unicode value",
                                     ))?;
+
                                     if !ch.is_digit(16) {
                                         return Err(SnbtError::unexpected_token_at(
                                             self.raw,
@@ -590,6 +591,8 @@ impl<'a> Lexer<'a> {
                                             "a hexadecimal digit",
                                         ));
                                     }
+
+                                    // `as` cast checked by condition above
                                     *by = ch as u8;
                                 }
 
@@ -599,10 +602,10 @@ impl<'a> Lexer<'a> {
                                     16,
                                 )
                                 .ok()
-                                .map(|n| char::from_u32(n))
+                                .map(char::from_u32)
                                 .flatten()
-                                .ok_or(
-                                    SnbtError::unknown_escape_sequence(self.raw, self.index - 6, 6),
+                                .ok_or_else(
+                                    || SnbtError::unknown_escape_sequence(self.raw, self.index - 6, 6),
                                 )?;
 
                                 self.raw_token_buffer.to_mut().push(ch);
@@ -825,7 +828,7 @@ impl Token {
             Token::Long(value) => Ok(NbtTag::Long(value)),
             Token::Float(value) => Ok(NbtTag::Float(value as f32)),
             Token::Double(value) => Ok(NbtTag::Double(value)),
-            tk @ _ => Err(tk),
+            tk => Err(tk),
         }
     }
 }
@@ -834,7 +837,7 @@ impl From<Token> for Result<String, Token> {
     fn from(tk: Token) -> Self {
         match tk {
             Token::String { value, .. } => Ok(value),
-            tk @ _ => Err(tk),
+            tk => Err(tk),
         }
     }
 }
@@ -848,7 +851,7 @@ macro_rules! opt_int_from_token {
                     Token::Short(x) => Ok(x as $int),
                     Token::Int(x) => Ok(x as $int),
                     Token::Long(x) => Ok(x as $int),
-                    tk @ _ => Err(tk),
+                    tk => Err(tk),
                 }
             }
         }
@@ -868,7 +871,7 @@ macro_rules! opt_float_from_token {
                 match tk {
                     Token::Float(x) => Ok(x as $float),
                     Token::Double(x) => Ok(x as $float),
-                    tk @ _ => Err(tk),
+                    tk => Err(tk),
                 }
             }
         }
@@ -966,15 +969,13 @@ impl SnbtError {
         let start = input[.. index]
             .char_indices()
             .rev()
-            .skip(before.checked_sub(1).unwrap_or(0))
-            .next()
+            .nth(before.saturating_sub(1))
             .map(|(index, _)| index)
             .unwrap_or(0);
         let end = index
             + input[index ..]
                 .char_indices()
-                .skip(char_width.min(20) + after)
-                .next()
+                .nth(char_width.min(20) + after)
                 .map(|(index, _)| index)
                 .unwrap_or(input.len());
         input[start .. end].to_owned()
@@ -984,7 +985,7 @@ impl SnbtError {
 impl Display for SnbtError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match &self.error {
-            &ParserErrorType::UnmatchedQuote { index } => write!(
+            ParserErrorType::UnmatchedQuote { index } => write!(
                 f,
                 "Unmatched quote: column {} near '{}'",
                 index, self.segment

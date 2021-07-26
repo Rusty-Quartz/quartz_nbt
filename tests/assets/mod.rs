@@ -96,7 +96,11 @@ pub static SNBT_EDGE_CASES_VALIDATE: Lazy<NbtCompound> = Lazy::new(|| {
                     "a": "b"
                 }
             }
-        }
+        },
+        "quoted \"key\"": "quoted 'value'",
+        "redundant": "quotes",
+        "more_redundant": "quotes",
+        "escape sequences": "\'\\\r\n\t\u{00A7}\u{0F63}",
     }
 });
 

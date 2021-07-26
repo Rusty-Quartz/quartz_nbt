@@ -33,8 +33,9 @@ pub fn serialize<T: Serialize>(
     Ok(cursor.into_inner())
 }
 
-/// Similar to [`serialize`], but elides homogeneity checks on sequential types.  This
-/// means that there are some `T` for which this method will return invalid NBT data.
+/// Similar to [`serialize`], but elides homogeneity checks on sequential types and maximum array
+/// and string length checks. This means that there are some `T` for which this method will return
+/// invalid NBT data.
 ///
 /// [`serialize`]: crate::serde::serialize
 pub fn serialize_unchecked<T: Serialize>(
@@ -80,9 +81,9 @@ pub fn serialize_into<W: Write, T: Serialize>(
     }
 }
 
-/// Similar to [`serialize_into`], but elides checks for homogeneity on sequential types. This
-/// means that there are some `T` for which this method will write invalid NBT data to the
-/// given writer.
+/// Similar to [`serialize_into`], but elides checks for homogeneity on sequential types and
+/// maximum array and string length checks. This means that there are some `T` for which this
+/// method will write invalid NBT data to the given writer.
 ///
 /// [`serialize_into`]: crate::serde::serialize_into
 pub fn serialize_into_unchecked<W: Write, T: Serialize>(
