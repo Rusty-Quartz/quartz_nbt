@@ -9,9 +9,4 @@ a Minecraft server implementation in Rust.
 
 # Usage
 
-Use the most recent version of this crate when adding it to your dependencies as shown below.
-```toml
-[dependencies]
-quartz_nbt = "0.2.3"
-```
 View the documentation [here](https://docs.rs/quartz_nbt) for examples.
