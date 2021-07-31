@@ -234,7 +234,7 @@ pub fn read_i32_array<R: Read>(reader: &mut R, len: usize) -> Result<Vec<i32>> {
         let ptr = bytes.as_mut_ptr() as *mut u8;
         let length = bytes.len() * 4;
         let capacity = bytes.capacity() * 4;
-        
+
         let mut bytes = unsafe { Vec::from_raw_parts(ptr, length, capacity) };
 
         reader.read_exact(&mut bytes)?;
@@ -262,9 +262,9 @@ pub fn read_i64_array<R: Read>(reader: &mut R, len: usize) -> Result<Vec<i64>> {
         let ptr = bytes.as_mut_ptr() as *mut u8;
         let length = bytes.len() * 8;
         let capacity = bytes.capacity() * 8;
-        
+
         let mut bytes = unsafe { Vec::from_raw_parts(ptr, length, capacity) };
-        
+
         reader.read_exact(&mut bytes)?;
 
         // Safety: the length of the vec is a multiple of 8, and the alignment is 8

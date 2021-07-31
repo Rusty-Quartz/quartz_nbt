@@ -113,10 +113,7 @@ impl NbtStructureError {
 
     pub(crate) fn type_mismatch(expected: &'static str, found: &'static str) -> Self {
         NbtStructureError {
-            repr: NbtStructureErrorRepr::TypeMismatch {
-                expected,
-                found,
-            },
+            repr: NbtStructureErrorRepr::TypeMismatch { expected, found },
         }
     }
 }

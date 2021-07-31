@@ -604,9 +604,9 @@ impl<'a> Lexer<'a> {
                                 .ok()
                                 .map(char::from_u32)
                                 .flatten()
-                                .ok_or_else(
-                                    || SnbtError::unknown_escape_sequence(self.raw, self.index - 6, 6),
-                                )?;
+                                .ok_or_else(|| {
+                                    SnbtError::unknown_escape_sequence(self.raw, self.index - 6, 6)
+                                })?;
 
                                 self.raw_token_buffer.to_mut().push(ch);
                             }

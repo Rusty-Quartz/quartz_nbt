@@ -45,7 +45,7 @@ fn read_nbt_uncompressed<R: Read>(reader: &mut R) -> Result<(NbtCompound, String
     if root_id != 0xA {
         return Err(NbtIoError::TagTypeMismatch {
             expected: 0xA,
-            found: root_id
+            found: root_id,
         });
     }
 
@@ -223,7 +223,7 @@ fn write_tag_body<W: Write>(writer: &mut W, tag: &NbtTag) -> Result<(), NbtIoErr
                     if tag_id != list_type {
                         return Err(NbtIoError::NonHomogenousList {
                             list_type,
-                            encountered_type: tag_id
+                            encountered_type: tag_id,
                         });
                     }
 
@@ -272,7 +272,7 @@ pub enum NbtIoError {
         /// The list type.
         list_type: u8,
         /// The encountered type.
-        encountered_type: u8
+        encountered_type: u8,
     },
     /// A type requested an option to be read from a list. Since options are indicated by the
     /// absence or presence of a tag, and since all sequential types are length-prefixed,
@@ -287,7 +287,7 @@ pub enum NbtIoError {
         /// The expected ID.
         expected: u8,
         /// The found ID.
-        found: u8
+        found: u8,
     },
     /// A sequential type was expected, but another was found.
     ExpectedSeq,
@@ -333,8 +333,14 @@ impl Display for NbtIoError {
             NbtIoError::StdIo(error) => write!(f, "{}", error),
             NbtIoError::MissingRootTag =>
                 write!(f, "NBT tree does not start with a valid root tag."),
-            &NbtIoError::NonHomogenousList { list_type, encountered_type } =>
-                write!(f, "Encountered non-homogenous list or sequential type: expected {:X} but found {:X}", list_type, encountered_type),
+            &NbtIoError::NonHomogenousList {
+                list_type,
+                encountered_type,
+            } => write!(
+                f,
+                "Encountered non-homogenous list or sequential type: expected {:X} but found {:X}",
+                list_type, encountered_type
+            ),
             NbtIoError::OptionInList => write!(
                 f,
                 "Minecraft's NBT format cannot support options in sequential data structures"

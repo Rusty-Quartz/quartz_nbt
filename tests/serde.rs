@@ -2,9 +2,20 @@
 
 mod assets;
 use assets::*;
-use quartz_nbt::{NbtCompound, NbtList, NbtTag, compound, io::{self, Flavor}, serde::{Array, deserialize, deserialize_from, deserialize_from_buffer, serialize}};
+use quartz_nbt::{
+    compound,
+    io::{self, Flavor},
+    serde::{deserialize, deserialize_from, deserialize_from_buffer, serialize, Array},
+    NbtCompound,
+    NbtList,
+    NbtTag,
+};
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, io::{Cursor, Seek, SeekFrom}};
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    io::{Cursor, Seek, SeekFrom},
+};
 
 #[derive(Serialize, Deserialize, PartialEq)]
 struct Level {
@@ -327,11 +338,11 @@ fn enum_serde() {
 
     #[derive(PartialEq, Deserialize, Debug)]
     struct DeserializeByName {
-        enums: Vec<A>
+        enums: Vec<A>,
     }
 
     let deserialize_by_name = DeserializeByName {
-        enums: vec![A::G, A::E, A::F]
+        enums: vec![A::G, A::E, A::F],
     };
 
     let deserialize_by_name_nbt = compound! {
@@ -339,10 +350,19 @@ fn enum_serde() {
     };
 
     let mut serialized_struct = Cursor::new(Vec::<u8>::new());
-    io::write_nbt(&mut serialized_struct, None, &deserialize_by_name_nbt, Flavor::Uncompressed).unwrap();
+    io::write_nbt(
+        &mut serialized_struct,
+        None,
+        &deserialize_by_name_nbt,
+        Flavor::Uncompressed,
+    )
+    .unwrap();
     serialized_struct.seek(SeekFrom::Start(0)).unwrap();
 
-    let deserialized_struct: DeserializeByName = deserialize_from(&mut serialized_struct, Flavor::Uncompressed).unwrap().0;
+    let deserialized_struct: DeserializeByName =
+        deserialize_from(&mut serialized_struct, Flavor::Uncompressed)
+            .unwrap()
+            .0;
 
     assert_eq!(deserialize_by_name, deserialized_struct);
 }
@@ -776,13 +796,19 @@ fn borrowed_serde() {
     struct BorrowedData<'a> {
         bytes: Array<&'a [u8]>,
         string: &'a str,
+        map: HashMap<&'a str, &'a str>,
     }
 
     const BYTES: &[u8] = &[1, 2, 3, 4, 5];
 
+    let mut map = HashMap::new();
+    map.insert("a", "b");
+    map.insert("str", "string");
+
     let data = BorrowedData {
         bytes: Array::from(BYTES),
         string: "is my unsafe code sound?",
+        map,
     };
 
     let serialized_struct = serialize(&data, None, Flavor::Uncompressed).unwrap();
@@ -795,7 +821,11 @@ fn borrowed_serde() {
 
     let validation_nbt = compound! {
         "bytes": BYTES.to_vec(),
-        "string": "is my unsafe code sound?"
+        "string": "is my unsafe code sound?",
+        "map": {
+            "a": "b",
+            "str": "string"
+        }
     };
 
     assert_eq!(struct_nbt, validation_nbt);

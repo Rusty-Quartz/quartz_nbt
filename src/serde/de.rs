@@ -312,7 +312,7 @@ where
         } else {
             Err(NbtIoError::TagTypeMismatch {
                 expected: 0xA,
-                found: TAG_ID
+                found: TAG_ID,
             })
         }
     }
@@ -471,39 +471,14 @@ where
             return Ok(None);
         }
 
-        let mut buf = Vec::new();
-        let de: CowStrDeserializer<'_, Self::Error> =
-            raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
-        seed.deserialize(de).map(Some)
+        let mut de = DeserializeTag::<_, B, 0x8>::new(self.reader);
+        seed.deserialize(&mut de).map(Some)
     }
 
     #[inline]
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
     where V: de::DeserializeSeed<'de> {
         self.drive_value_visitor(self.tag_id, seed)
-    }
-
-    #[inline]
-    fn next_entry_seed<K, V>(
-        &mut self,
-        kseed: K,
-        vseed: V,
-    ) -> Result<Option<(K::Value, V::Value)>, Self::Error>
-    where
-        K: de::DeserializeSeed<'de>,
-        V: de::DeserializeSeed<'de>,
-    {
-        let tag_id = raw::read_u8(self.reader)?;
-
-        if tag_id == 0 {
-            return Ok(None);
-        }
-
-        let mut buf = Vec::new();
-        let de: CowStrDeserializer<'_, Self::Error> =
-            raw::read_string_into(self.reader, &mut buf)?.into_deserializer();
-        let key = kseed.deserialize(de)?;
-        Ok(Some((key, self.drive_value_visitor(tag_id, vseed)?)))
     }
 }
 
@@ -773,9 +748,8 @@ where
             ),
             0x8 => {
                 let mut dest = Vec::new();
-                visitor.visit_enum(
-                    raw::read_string_into(self.reader, &mut dest)?.into_deserializer()
-                )
+                visitor
+                    .visit_enum(raw::read_string_into(self.reader, &mut dest)?.into_deserializer())
             }
             // Newtype, tuple, and struct variants
             0xA => {
@@ -798,7 +772,7 @@ where
                 if end != 0x0 {
                     return Err(NbtIoError::TagTypeMismatch {
                         expected: 0x0,
-                        found: end
+                        found: end,
                     });
                 }
 

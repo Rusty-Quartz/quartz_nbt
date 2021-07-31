@@ -191,7 +191,7 @@ mod raw;
 mod repr;
 /// When the `serde` feature is enabled, this module provides `Serializer` and `Deserializer`
 /// implementations to link this crate into the serde data model.
-/// 
+///
 /// # Example
 ///
 /// ```
@@ -201,7 +201,7 @@ mod repr;
 ///     io::Flavor,
 ///     serde::{serialize, deserialize}
 /// };
-/// 
+///
 /// #[derive(Serialize, Deserialize, PartialEq, Debug)]
 /// pub struct Entity {
 ///     name: String,
@@ -289,7 +289,7 @@ mod repr;
 ///     serde::serialize
 /// };
 /// use std::io::Cursor;
-/// 
+///
 /// #[derive(Serialize)]
 /// enum MyEnum {
 ///     Unit,

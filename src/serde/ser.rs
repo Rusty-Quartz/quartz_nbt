@@ -1114,7 +1114,7 @@ impl TypeChecker for Homogenous {
                 } else {
                     Err(NbtIoError::NonHomogenousList {
                         list_type: id,
-                        encountered_type: tag_id
+                        encountered_type: tag_id,
                     })
                 },
             None => {
