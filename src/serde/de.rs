@@ -372,9 +372,9 @@ where
             match state {
                 TypeHintDispatchState::Ready => {
                     *state = TypeHintDispatchState::Sent;
-                    return Ok(seed.deserialize(TypeHintDeserializer::<LIST_ID>).ok());
+                    Ok(seed.deserialize(TypeHintDeserializer::<LIST_ID>).ok())
                 }
-                TypeHintDispatchState::Sent => return Ok(None),
+                TypeHintDispatchState::Sent => Ok(None),
                 _ => unreachable!(),
             }
         }
@@ -890,7 +890,7 @@ fn read_bytes_from_cursor<'de, 'a: 'de>(
 ) -> Result<&'de [u8], io::Error> {
     let position = cursor.position() as usize;
     let total_len = cursor.get_ref().len();
-    let remaining = total_len.checked_sub(position).unwrap_or(0);
+    let remaining = total_len.saturating_sub(position);
 
     if len > remaining {
         return Err(io::Error::new(

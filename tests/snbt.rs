@@ -5,7 +5,7 @@ use quartz_nbt::{snbt, NbtCompound};
 #[test]
 fn edge_cases() {
     let nbt = snbt::parse(SNBT_EDGE_CASES).unwrap();
-    assert_eq!(&nbt, &*SNBT_EDGE_CASES_VALIDATE);
+    assert_compound_eq!(&nbt, &*SNBT_EDGE_CASES_VALIDATE);
 }
 
 #[test]
@@ -25,4 +25,21 @@ fn big_test() {
         .get::<_, &str>("Command")
         .unwrap()[32 ..];
     assert!(snbt::parse(inner).is_ok());
+}
+
+#[test]
+fn formatting() {
+    let repr = format!("{:+#.2?}", &*SNBT_EDGE_CASES_VALIDATE);
+
+    // For manual inspection
+    println!("{}", repr);
+
+    assert_compound_eq!(
+        &snbt::parse(&SNBT_EDGE_CASES_VALIDATE.to_snbt()).unwrap(),
+        &*SNBT_EDGE_CASES_VALIDATE
+    );
+    assert_compound_eq!(
+        &snbt::parse(&SNBT_EDGE_CASES_VALIDATE.to_pretty_snbt()).unwrap(),
+        &*SNBT_EDGE_CASES_VALIDATE
+    );
 }

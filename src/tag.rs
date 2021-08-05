@@ -5,7 +5,7 @@ use crate::{
     NbtStructureError,
 };
 use std::{
-    borrow::{Borrow, BorrowMut},
+    borrow::{Borrow, BorrowMut, Cow},
     collections::HashMap,
     convert::{AsMut, AsRef, TryFrom},
     fmt::{self, Debug, Display, Formatter},
@@ -58,31 +58,28 @@ pub enum NbtTag {
 }
 
 impl NbtTag {
-    /// Returns the single character denoting this tag's type, or an empty string if this tag type has
-    /// no type specifier.
+    /// Returns the single character denoting this tag's type, or `None` if this tag has no type
+    /// specifier.
     ///
     /// # Examples
     ///
     /// ```
     /// # use quartz_nbt::NbtTag;
-    /// assert_eq!(NbtTag::Long(10).type_specifier(), "L");
-    /// assert_eq!(NbtTag::String(String::new()).type_specifier(), "");
-    ///
-    /// // Note that while integers do not require a type specifier, this method will still return "I"
-    /// assert_eq!(NbtTag::Int(-10).type_specifier(), "I");
+    /// assert_eq!(NbtTag::Long(10).type_specifier(), Some("L"));
+    /// assert_eq!(NbtTag::IntArray(Vec::new()).type_specifier(), Some("I"));
+    /// assert_eq!(NbtTag::String(String::new()).type_specifier(), None);
     /// ```
-    pub fn type_specifier(&self) -> &str {
+    pub fn type_specifier(&self) -> Option<&'static str> {
         match self {
-            NbtTag::Byte(_) => "B",
-            NbtTag::Short(_) => "S",
-            NbtTag::Int(_) => "I",
-            NbtTag::Long(_) => "L",
-            NbtTag::Float(_) => "F",
-            NbtTag::Double(_) => "D",
-            NbtTag::ByteArray(_) => "B",
-            NbtTag::IntArray(_) => "I",
-            NbtTag::LongArray(_) => "L",
-            _ => "",
+            NbtTag::Byte(_) => Some("B"),
+            NbtTag::Short(_) => Some("S"),
+            NbtTag::Long(_) => Some("L"),
+            NbtTag::Float(_) => Some("F"),
+            NbtTag::Double(_) => Some("D"),
+            NbtTag::ByteArray(_) => Some("B"),
+            NbtTag::IntArray(_) => Some("I"),
+            NbtTag::LongArray(_) => Some("L"),
+            _ => None,
         }
     }
 
@@ -103,8 +100,10 @@ impl NbtTag {
         }
     }
 
-    /// Converts this NBT tag into a valid, parsable SNBT string with no extraneous spacing. This method should
-    /// not be used to generate user-facing text, rather `to_component` should be used instead.
+    /// Converts this NBT tag into a valid, parsable SNBT string with no extraneous spacing. This
+    /// method should not be used to generate user-facing text, rather [`to_pretty_snbt`] should
+    /// be used instead. If finer control over the output is desired, then the tag can be formatted
+    /// via the standard library's [`format!`] macro to pass additional formatting parameters.
     ///
     /// # Examples
     ///
@@ -121,42 +120,61 @@ impl NbtTag {
     /// ```
     /// # use quartz_nbt::*;
     /// let mut compound = NbtCompound::new();
-    /// compound.insert("foo".to_owned(), vec![-1_i64, -3_i64, -5_i64]);
+    /// compound.insert("foo", vec![-1_i64, -3_i64, -5_i64]);
     /// assert_eq!(NbtTag::Compound(compound).to_snbt(), "{foo:[L;-1,-3,-5]}");
     /// ```
+    ///
+    /// [`to_pretty_snbt`]: crate::NbtTag::to_pretty_snbt
+    /// [`format!`]: std::format
     pub fn to_snbt(&self) -> String {
-        macro_rules! list_to_string {
-            ($list:expr) => {
-                format!(
-                    "[{};{}]",
-                    self.type_specifier(),
-                    $list
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<String>>()
-                        .join(",")
-                )
-            };
-        }
+        format!("{:?}", self)
+    }
 
-        match self {
-            NbtTag::Byte(value) => format!("{}{}", value, self.type_specifier()),
-            NbtTag::Short(value) => format!("{}{}", value, self.type_specifier()),
-            NbtTag::Int(value) => format!("{}", value),
-            NbtTag::Long(value) => format!("{}{}", value, self.type_specifier()),
-            NbtTag::Float(value) => format!("{}{}", value, self.type_specifier()),
-            NbtTag::Double(value) => format!("{}{}", value, self.type_specifier()),
-            NbtTag::ByteArray(value) => list_to_string!(value),
-            NbtTag::String(value) => Self::string_to_snbt(value),
-            NbtTag::List(value) => value.to_snbt(),
-            NbtTag::Compound(value) => value.to_snbt(),
-            NbtTag::IntArray(value) => list_to_string!(value),
-            NbtTag::LongArray(value) => list_to_string!(value),
-        }
+    /// Converts this NBT tag into a valid, parsable SNBT string with extra spacing for
+    /// readability. If a more compact SNBT representation is desired, then use [`to_snbt`]. If
+    /// finer control over the output is desired, then the tag can be formatted via the standard
+    /// library's [`format!`] macro to pass additional formatting parameters.
+    ///
+    /// # Examples
+    ///
+    /// Simple primitive conversion:
+    ///
+    /// ```
+    /// # use quartz_nbt::NbtTag;
+    /// assert_eq!(NbtTag::Byte(5).to_pretty_snbt(), "5B");
+    /// assert_eq!(
+    ///     NbtTag::String("\"Quoted text\"".to_owned()).to_pretty_snbt(),
+    ///     "'\"Quoted text\"'"
+    /// );
+    /// ```
+    ///
+    /// More complex tag conversion:
+    ///
+    /// ```
+    /// # use quartz_nbt::*;
+    /// let mut compound = NbtCompound::new();
+    /// compound.insert("foo", vec![-1_i64, -3_i64, -5_i64]);
+    /// let repr =
+    /// r#"{
+    ///     foo: [
+    ///         L;
+    ///         -1,
+    ///         -3,
+    ///         -5
+    ///     ]
+    /// }"#;
+    /// assert_eq!(NbtTag::Compound(compound).to_pretty_snbt(), repr);
+    /// ```
+    ///
+    /// [`to_snbt`]: crate::NbtTag::to_snbt
+    /// [`format!`]: std::format
+    pub fn to_pretty_snbt(&self) -> String {
+        format!("{:#?}", self)
     }
 
     /// Returns whether or not the given string needs to be quoted due to non-alphanumeric or otherwise
     /// non-standard characters.
+    #[inline]
     pub fn should_quote(string: &str) -> bool {
         for ch in string.chars() {
             if ch == ':'
@@ -167,6 +185,10 @@ impl NbtTag {
                 || ch == '}'
                 || ch == '['
                 || ch == ']'
+                || ch == '\\'
+                || ch == '\n'
+                || ch == '\r'
+                || ch == '\t'
             {
                 return true;
             }
@@ -176,7 +198,24 @@ impl NbtTag {
     }
 
     /// Wraps the given string in quotes and escapes any quotes contained in the original string.
-    pub fn string_to_snbt(string: &str) -> String {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use quartz_nbt::NbtTag;
+    /// use std::borrow::Cow;
+    ///
+    /// assert_eq!(NbtTag::string_to_snbt("string"), Cow::Borrowed("string"));
+    /// assert_eq!(
+    ///     NbtTag::string_to_snbt("\\\n\r\t'\""),
+    ///     Cow::<str>::Owned(String::from(r#"'\\\n\r\t\'"'"#))
+    /// );
+    /// ```
+    pub fn string_to_snbt(string: &str) -> Cow<'_, str> {
+        if !Self::should_quote(string) {
+            return Cow::Borrowed(string);
+        }
+
         // Determine the best option for the surrounding quotes to minimize escape sequences
         let surrounding: char;
         if string.contains('"') {
@@ -190,28 +229,114 @@ impl NbtTag {
 
         // Construct the string accounting for escape sequences
         for ch in string.chars() {
-            if ch == surrounding || ch == '\\' {
-                snbt_string.push('\\');
+            match ch {
+                '\n' => {
+                    snbt_string.push_str("\\n");
+                    continue;
+                }
+                '\r' => {
+                    snbt_string.push_str("\\r");
+                    continue;
+                }
+                '\t' => {
+                    snbt_string.push_str("\\t");
+                    continue;
+                }
+                _ =>
+                    if ch == surrounding || ch == '\\' {
+                        snbt_string.push('\\');
+                    },
             }
             snbt_string.push(ch);
         }
 
         snbt_string.push(surrounding);
-        snbt_string
+        Cow::Owned(snbt_string)
+    }
+
+    #[allow(clippy::write_with_newline)]
+    fn to_formatted_snbt(&self, indent: &mut String, f: &mut Formatter<'_>) -> fmt::Result {
+        fn write_list(
+            list: &[impl Display],
+            indent: &mut String,
+            ts: &str,
+            f: &mut Formatter<'_>,
+        ) -> fmt::Result {
+            if list.is_empty() {
+                return write!(f, "[{};]", ts);
+            }
+
+            if f.alternate() {
+                indent.push_str("    ");
+                write!(f, "[\n{}{};\n", indent, ts)?;
+            } else {
+                write!(f, "[{};", ts)?;
+            }
+
+            let last_index = list.len() - 1;
+            for (index, element) in list.iter().enumerate() {
+                if f.alternate() {
+                    write!(f, "{}", indent)?;
+                }
+                Display::fmt(element, f)?;
+                if index != last_index {
+                    if f.alternate() {
+                        write!(f, ",\n")?;
+                    } else {
+                        write!(f, ",")?;
+                    }
+                }
+            }
+
+            if f.alternate() {
+                indent.truncate(indent.len() - 4);
+                write!(f, "\n{}]", &indent)
+            } else {
+                write!(f, "]")
+            }
+        }
+
+        #[inline]
+        fn write(value: &impl Display, ts: Option<&str>, f: &mut Formatter<'_>) -> fmt::Result {
+            match ts {
+                Some(ts) => {
+                    Display::fmt(value, f)?;
+                    write!(f, "{}", ts)
+                }
+                None => Display::fmt(value, f),
+            }
+        }
+
+        let ts = self.type_specifier();
+
+        match self {
+            NbtTag::Byte(value) => write(value, ts, f),
+            NbtTag::Short(value) => write(value, ts, f),
+            NbtTag::Int(value) => write(value, ts, f),
+            NbtTag::Long(value) => write(value, ts, f),
+            NbtTag::Float(value) => write(value, ts, f),
+            NbtTag::Double(value) => write(value, ts, f),
+            NbtTag::ByteArray(value) => write_list(&**value, indent, ts.unwrap(), f),
+            NbtTag::String(value) => write!(f, "{}", Self::string_to_snbt(value)),
+            NbtTag::List(value) => value.to_formatted_snbt(indent, f),
+            NbtTag::Compound(value) => value.to_formatted_snbt(indent, f),
+            NbtTag::IntArray(value) => write_list(&**value, indent, ts.unwrap(), f),
+            NbtTag::LongArray(value) => write_list(&**value, indent, ts.unwrap(), f),
+        }
     }
 }
 
 impl Display for NbtTag {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.to_snbt(), f)
+        self.to_formatted_snbt(&mut String::new(), f)
     }
 }
 
 impl Debug for NbtTag {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_snbt())
+        self.to_formatted_snbt(&mut String::new(), f)
     }
 }
 
@@ -584,20 +709,19 @@ impl NbtList {
         self.0.iter_mut().map(|tag| T::try_from(tag))
     }
 
-    /// Converts this tag list to a valid SNBT string.
+    /// Converts this tag list into a valid SNBT string. See `NbtTag::`[`to_snbt`] for details.
+    ///
+    /// [`to_snbt`]: crate::NbtTag::to_snbt
     pub fn to_snbt(&self) -> String {
-        let mut snbt_list = String::with_capacity(2);
-        snbt_list.push('[');
-        snbt_list.push_str(
-            &self
-                .as_ref()
-                .iter()
-                .map(|tag| tag.to_snbt())
-                .collect::<Vec<String>>()
-                .join(","),
-        );
-        snbt_list.push(']');
-        snbt_list
+        format!("{:?}", self)
+    }
+
+    /// Converts this tag list into a valid SNBT string with extra spacing for readability.
+    /// See `NbtTag::`[`to_pretty_snbt`] for details.
+    ///
+    /// [`to_pretty_snbt`]: crate::NbtTag::to_pretty_snbt
+    pub fn to_pretty_snbt(&self) -> String {
+        format!("{:#?}", self)
     }
 
     /// Returns the length of this list.
@@ -683,6 +807,44 @@ impl NbtList {
     pub fn push<T: Into<NbtTag>>(&mut self, value: T) {
         self.0.push(value.into());
     }
+
+    #[allow(clippy::write_with_newline)]
+    fn to_formatted_snbt(&self, indent: &mut String, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_empty() {
+            return write!(f, "[]");
+        }
+
+        if f.alternate() {
+            indent.push_str("    ");
+            write!(f, "[\n")?;
+        } else {
+            write!(f, "[")?;
+        }
+
+        let last_index = self.len() - 1;
+        for (index, element) in self.0.iter().enumerate() {
+            if f.alternate() {
+                write!(f, "{}", indent)?;
+            }
+
+            element.to_formatted_snbt(indent, f)?;
+
+            if index != last_index {
+                if f.alternate() {
+                    write!(f, ",\n")?;
+                } else {
+                    write!(f, ",")?;
+                }
+            }
+        }
+
+        if f.alternate() {
+            indent.truncate(indent.len() - 4);
+            write!(f, "\n{}]", indent)
+        } else {
+            write!(f, "]")
+        }
+    }
 }
 
 impl Default for NbtList {
@@ -767,14 +929,14 @@ impl BorrowMut<[NbtTag]> for NbtList {
 impl Display for NbtList {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.to_snbt(), f)
+        self.to_formatted_snbt(&mut String::new(), f)
     }
 }
 
 impl Debug for NbtList {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_snbt())
+        self.to_formatted_snbt(&mut String::new(), f)
     }
 }
 
@@ -923,26 +1085,19 @@ impl NbtCompound {
             .map(|(key, tag)| (key.as_str(), T::try_from(tag)))
     }
 
-    /// Converts this tag compound into a valid SNBT string.
+    /// Converts this tag compound into a valid SNBT string. See `NbtTag::`[`to_snbt`] for details.
+    ///
+    /// [`to_snbt`]: crate::NbtTag::to_snbt
     pub fn to_snbt(&self) -> String {
-        let mut snbt_compound = String::with_capacity(2);
-        snbt_compound.push('{');
-        snbt_compound.push_str(
-            &self
-                .0
-                .iter()
-                .map(|(key, tag)| {
-                    if NbtTag::should_quote(key) {
-                        format!("{}:{}", NbtTag::string_to_snbt(key), tag.to_snbt())
-                    } else {
-                        format!("{}:{}", key, tag.to_snbt())
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join(","),
-        );
-        snbt_compound.push('}');
-        snbt_compound
+        format!("{:?}", self)
+    }
+
+    /// Converts this tag compound into a valid SNBT string with extra spacing for readability.
+    /// See `NbtTag::`[`to_pretty_snbt`] for details.
+    ///
+    /// [`to_pretty_snbt`]: crate::NbtTag::to_pretty_snbt
+    pub fn to_pretty_snbt(&self) -> String {
+        format!("{:#?}", self)
     }
 
     /// Returns the number of tags in this compound.
@@ -1065,6 +1220,48 @@ impl NbtCompound {
     pub fn from_snbt(input: &str) -> Result<Self, SnbtError> {
         snbt::parse(input)
     }
+
+    #[allow(clippy::write_with_newline)]
+    fn to_formatted_snbt(&self, indent: &mut String, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.is_empty() {
+            return write!(f, "{{}}");
+        }
+
+        if f.alternate() {
+            indent.push_str("    ");
+            write!(f, "{{\n")?;
+        } else {
+            write!(f, "{{")?;
+        }
+
+        let last_index = self.len() - 1;
+        for (index, (key, value)) in self.0.iter().enumerate() {
+            let key = NbtTag::string_to_snbt(key);
+
+            if f.alternate() {
+                write!(f, "{}{}: ", indent, key)?;
+            } else {
+                write!(f, "{}:", key)?;
+            }
+
+            value.to_formatted_snbt(indent, f)?;
+
+            if index != last_index {
+                if f.alternate() {
+                    write!(f, ",\n")?;
+                } else {
+                    write!(f, ",")?;
+                }
+            }
+        }
+
+        if f.alternate() {
+            indent.truncate(indent.len() - 4);
+            write!(f, "\n{}}}", indent)
+        } else {
+            write!(f, "}}")
+        }
+    }
 }
 
 impl Default for NbtCompound {
@@ -1136,14 +1333,14 @@ impl FromStr for NbtCompound {
 impl Display for NbtCompound {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.to_snbt(), f)
+        self.to_formatted_snbt(&mut String::new(), f)
     }
 }
 
 impl Debug for NbtCompound {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        Debug::fmt(&self.to_snbt(), f)
+        self.to_formatted_snbt(&mut String::new(), f)
     }
 }
 

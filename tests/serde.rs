@@ -160,7 +160,7 @@ fn level_dat() {
     let validate_nbt = io::read_nbt(&mut Cursor::new(LEVEL_DAT), Flavor::GzCompressed)
         .unwrap()
         .0;
-    assert_eq!(test_nbt, validate_nbt)
+    assert_compound_eq!(test_nbt, validate_nbt)
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn basic_datatypes_serde() {
         "string": "Mario"
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: Foo = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -266,7 +266,7 @@ fn complex_structs_serde() {
         "b": [12i8, 12i8, 12i8]
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: Foo = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -329,7 +329,7 @@ fn enum_serde() {
         "unit": 4i32
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: Foo = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -412,7 +412,7 @@ fn array_serde() {
         "prim_long_array": [L; i64::MIN, i64::MAX, 0]
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: Foo = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -573,7 +573,7 @@ fn array_serde() {
         Ok(NbtTag::IntArray(_))
     ));
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: SerAsSlice = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -716,7 +716,7 @@ fn vec_serde() {
         "seq_empty_tag_list": [[], []],
     };
 
-    assert_eq!(nbt_struct, validation_nbt);
+    assert_compound_eq!(nbt_struct, validation_nbt);
 
     let deserialized_struct: Foo = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -782,7 +782,7 @@ fn option_serde() {
         "g": [21i8, 98i8]
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: Foo = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()
@@ -828,7 +828,7 @@ fn borrowed_serde() {
         }
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: BorrowedData<'_> =
         deserialize_from_buffer(&serialized_struct).unwrap().0;
@@ -910,7 +910,7 @@ fn inlined_nbt() {
         "normal_field": 42i32
     };
 
-    assert_eq!(struct_nbt, validation_nbt);
+    assert_compound_eq!(struct_nbt, validation_nbt);
 
     let deserialized_struct: Inlined = deserialize(&serialized_struct, Flavor::Uncompressed)
         .unwrap()

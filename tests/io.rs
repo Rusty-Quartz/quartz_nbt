@@ -12,7 +12,7 @@ fn big_test() {
     let (nbt, root_name) = io::read_nbt(&mut Cursor::new(BIG_TEST), BIG_TEST_FLAVOR).unwrap();
 
     assert_eq!(root_name, "Level");
-    assert_eq!(&nbt, &*BIG_TEST_VALIDATE);
+    assert_compound_eq!(&nbt, &*BIG_TEST_VALIDATE);
 }
 
 #[test]
@@ -53,5 +53,5 @@ fn writing_nbt() {
         .unwrap()
         .0;
 
-    assert_eq!(nbt, read_nbt);
+    assert_compound_eq!(read_nbt, nbt);
 }

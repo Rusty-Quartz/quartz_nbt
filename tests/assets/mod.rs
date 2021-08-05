@@ -100,10 +100,38 @@ pub static SNBT_EDGE_CASES_VALIDATE: Lazy<NbtCompound> = Lazy::new(|| {
         "quoted \"key\"": "quoted 'value'",
         "redundant": "quotes",
         "more_redundant": "quotes",
-        "escape sequences": "\'\\\r\n\t\u{00A7}\u{0F63}",
+        "escape sequences": "\'a\\bc\rd\nef\t\u{00A7}_\u{0F63}",
     }
 });
 
 pub const BIG_SNBT: &str = include_str!("big_snbt.snbt");
 
 pub const LEVEL_DAT: &[u8] = include_bytes!("level.dat");
+
+#[macro_export]
+macro_rules! assert_compound_eq {
+    ($test:expr, $validate:expr) => {{
+        let test = $test;
+        let validate = $validate;
+
+        for (key, value) in validate.inner().iter() {
+            let test_value = match test.inner().get(key) {
+                Some(test_value) => test_value,
+                None => {
+                    panic!(
+                        "Compound missing field {} found in \
+                         validation:\nTest:{:#?}\nValidate:{:#?}",
+                        key, test, validate
+                    );
+                }
+            };
+
+            if test_value != value {
+                panic!(
+                    "Test field does not equal validation field:\nTest:{:#?}\nValidate:{:#?}",
+                    test_value, value
+                )
+            }
+        }
+    }};
+}

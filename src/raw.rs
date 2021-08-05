@@ -95,7 +95,7 @@ pub fn read_string_into<'a, R: Read>(
     reader.read_exact(dest)?;
     match cesu8::from_java_cesu8(dest) {
         Ok(string) => Ok(string),
-        Err(_) => return Err(NbtIoError::InvalidCesu8String),
+        Err(_) => Err(NbtIoError::InvalidCesu8String),
     }
 }
 

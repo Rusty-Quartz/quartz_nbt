@@ -545,110 +545,143 @@ impl<'a> Lexer<'a> {
                     Cow::Borrowed(&self.raw[start .. last_nws_char_pos + last_nws_char.len_utf8()]);
             }
 
-            State::InSingleQuotes | State::InDoubleQuotes => loop {
-                char_width += 1;
+            State::InSingleQuotes | State::InDoubleQuotes => {
+                let mut flush_start = start + 1;
 
-                match self.next_ch() {
-                    Some('\\') => {
-                        // One additional
-                        char_width += 1;
-
-                        if self.raw_token_buffer.is_empty() {
-                            // Skip leading quote and exclude the backslash we just read
-                            self.raw_token_buffer =
-                                Cow::Borrowed(&self.raw[start + 1 .. self.index - 1]);
-                        }
-
-                        // Handle escape characters
-                        match self.next_ch() {
-                            // These are just directly quoted
-                            Some(ch @ ('\'' | '"' | '\\')) =>
-                                self.raw_token_buffer.to_mut().push(ch),
-
-                            // Convert to the rust equivalent
-                            Some('n') => self.raw_token_buffer.to_mut().push('\n'),
-                            Some('r') => self.raw_token_buffer.to_mut().push('\r'),
-                            Some('t') => self.raw_token_buffer.to_mut().push('\t'),
-
-                            // Parse a unicode escape sequence
-                            Some('u') => {
-                                // Four additional
-                                char_width += 4;
-
-                                let mut buffer = [0u8; 4];
-                                for by in buffer.iter_mut() {
-                                    // The function call is cheap and will probably be inlined
-                                    #[allow(clippy::or_fun_call)]
-                                    let ch = self.next_ch().ok_or(SnbtError::unexpected_eos(
-                                        "four-character hex unicode value",
-                                    ))?;
-
-                                    if !ch.is_digit(16) {
-                                        return Err(SnbtError::unexpected_token_at(
-                                            self.raw,
-                                            self.index - ch.len_utf8(),
-                                            1,
-                                            "a hexadecimal digit",
-                                        ));
-                                    }
-
-                                    // `as` cast checked by condition above
-                                    *by = ch as u8;
-                                }
-
-                                // All the characters are checked
-                                let ch = u32::from_str_radix(
-                                    str::from_utf8(buffer.as_ref()).unwrap(),
-                                    16,
-                                )
-                                .ok()
-                                .map(char::from_u32)
-                                .flatten()
-                                .ok_or_else(|| {
-                                    SnbtError::unknown_escape_sequence(self.raw, self.index - 6, 6)
-                                })?;
-
-                                self.raw_token_buffer.to_mut().push(ch);
-                            }
-
-                            // Unknown sequence
-                            Some(_) => {
-                                return Err(SnbtError::unknown_escape_sequence(
-                                    self.raw,
-                                    self.index - 2,
-                                    2,
-                                ));
-                            }
-
-                            // Unexpected end of string / unmatched quotation
-                            None => {
-                                return Err(SnbtError::unmatched_quote(self.raw, start));
-                            }
-                        }
+                #[inline]
+                fn flush<'a>(raw: &'a str, buffer: &mut Cow<'a, str>, start: usize, end: usize) {
+                    if start == end {
+                        return;
                     }
 
-                    // Close off the string if the quote type matches
-                    Some(ch @ ('\'' | '"')) => match (ch, state) {
-                        ('\'', State::InSingleQuotes) | ('"', State::InDoubleQuotes) => {
-                            if self.raw_token_buffer.is_empty() {
-                                // Exclude surrounding quotes
-                                self.raw_token_buffer =
-                                    Cow::Borrowed(&self.raw[start + 1 .. self.index - 1]);
-                            }
-                            break;
-                        }
-                        _ => {}
-                    },
+                    assert!(
+                        start < end,
+                        "Internal SNBT parsing error: start < end in `flush`"
+                    );
 
-                    // Directly quote a character
-                    Some(..) => {}
-
-                    // Unexpected end of string / unmatched quotation
-                    None => {
-                        return Err(SnbtError::unmatched_quote(self.raw, start));
+                    if buffer.is_empty() {
+                        *buffer = Cow::Borrowed(&raw[start .. end]);
+                    } else {
+                        buffer.to_mut().push_str(&raw[start .. end]);
                     }
                 }
-            },
+
+                loop {
+                    char_width += 1;
+
+                    match self.next_ch() {
+                        Some('\\') => {
+                            // One additional
+                            char_width += 1;
+
+                            flush(
+                                self.raw,
+                                &mut self.raw_token_buffer,
+                                flush_start,
+                                self.index - 1,
+                            );
+
+                            // Handle escape characters
+                            match self.next_ch() {
+                                // These are just directly quoted
+                                Some(ch @ ('\'' | '"' | '\\')) =>
+                                    self.raw_token_buffer.to_mut().push(ch),
+
+                                // Convert to the rust equivalent
+                                Some('n') => self.raw_token_buffer.to_mut().push('\n'),
+                                Some('r') => self.raw_token_buffer.to_mut().push('\r'),
+                                Some('t') => self.raw_token_buffer.to_mut().push('\t'),
+
+                                // Parse a unicode escape sequence
+                                Some('u') => {
+                                    // Four additional
+                                    char_width += 4;
+
+                                    let mut buffer = [0u8; 4];
+                                    for by in buffer.iter_mut() {
+                                        // The function call is cheap and will probably be inlined
+                                        #[allow(clippy::or_fun_call)]
+                                        let ch =
+                                            self.next_ch().ok_or(SnbtError::unexpected_eos(
+                                                "four-character hex unicode value",
+                                            ))?;
+
+                                        if !ch.is_digit(16) {
+                                            return Err(SnbtError::unexpected_token_at(
+                                                self.raw,
+                                                self.index - ch.len_utf8(),
+                                                1,
+                                                "a hexadecimal digit",
+                                            ));
+                                        }
+
+                                        // `as` cast checked by condition above
+                                        *by = ch as u8;
+                                    }
+
+                                    // All the characters are checked
+                                    let ch = u32::from_str_radix(
+                                        str::from_utf8(buffer.as_ref()).unwrap(),
+                                        16,
+                                    )
+                                    .ok()
+                                    .map(char::from_u32)
+                                    .flatten()
+                                    .ok_or_else(|| {
+                                        SnbtError::unknown_escape_sequence(
+                                            self.raw,
+                                            self.index - 6,
+                                            6,
+                                        )
+                                    })?;
+
+                                    self.raw_token_buffer.to_mut().push(ch);
+                                }
+
+                                // Unknown sequence
+                                Some(_) => {
+                                    return Err(SnbtError::unknown_escape_sequence(
+                                        self.raw,
+                                        self.index - 2,
+                                        2,
+                                    ));
+                                }
+
+                                // Unexpected end of string / unmatched quotation
+                                None => {
+                                    return Err(SnbtError::unmatched_quote(self.raw, start));
+                                }
+                            }
+                        }
+
+                        // Close off the string if the quote type matches
+                        Some(ch @ ('\'' | '"')) => match (ch, state) {
+                            ('\'', State::InSingleQuotes) | ('"', State::InDoubleQuotes) => {
+                                flush(
+                                    self.raw,
+                                    &mut self.raw_token_buffer,
+                                    flush_start,
+                                    self.index - 1,
+                                );
+                                break;
+                            }
+
+                            // Directly quote the character
+                            _ => continue,
+                        },
+
+                        // Directly quote the character
+                        Some(..) => continue,
+
+                        // Unexpected end of string / unmatched quotation
+                        None => {
+                            return Err(SnbtError::unmatched_quote(self.raw, start));
+                        }
+                    }
+
+                    flush_start = self.index;
+                }
+            }
         }
 
         let ret = self.parse_token(
