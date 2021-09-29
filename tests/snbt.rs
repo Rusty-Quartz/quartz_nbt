@@ -13,7 +13,7 @@ fn big_test() {
     let result = snbt::parse(BIG_SNBT);
     assert!(result.is_ok());
     let result = result.unwrap();
-    let inner = &result
+    let inner = result
         .get::<_, &NbtCompound>("Riding")
         .unwrap()
         .get::<_, &NbtCompound>("Riding")
@@ -23,8 +23,14 @@ fn big_test() {
         .get::<_, &NbtCompound>("TileEntityData")
         .unwrap()
         .get::<_, &str>("Command")
-        .unwrap()[32 ..];
-    assert!(snbt::parse(inner).is_ok());
+        .unwrap()[32 ..]
+        .to_string()
+        + " and some garbage";
+    assert!(snbt::parse(&inner).is_ok());
+    assert_eq!(
+        snbt::parse_and_size(&inner).unwrap().0,
+        inner.len() - " and some garbage".len()
+    );
 }
 
 #[test]
