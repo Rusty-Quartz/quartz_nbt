@@ -28,7 +28,7 @@ fn big_test() {
         + " and some garbage";
     assert!(snbt::parse(&inner).is_ok());
     assert_eq!(
-        snbt::parse_and_size(&inner).unwrap().0,
+        snbt::parse_and_size(&inner).unwrap().1,
         inner.len() - " and some garbage".len()
     );
 }

@@ -44,14 +44,14 @@ use std::{
 /// );
 /// ```
 pub fn parse<T: AsRef<str> + ?Sized>(string_nbt: &T) -> Result<NbtCompound, SnbtError> {
-    parse_and_size(string_nbt).map(|(_, tag)| tag)
+    parse_and_size(string_nbt).map(|(tag, _)| tag)
 }
 
 /// Parses the given string just like [`parse`], but also returns the amount of parsed characters.
 ///
 pub fn parse_and_size<T: AsRef<str> + ?Sized>(
     string_nbt: &T,
-) -> Result<(usize, NbtCompound), SnbtError> {
+) -> Result<(NbtCompound, usize), SnbtError> {
     let mut tokens = Lexer::new(string_nbt.as_ref());
     let open_curly = tokens.assert_next(Token::OpenCurly)?;
     parse_compound_tag(&mut tokens, &open_curly)
@@ -76,7 +76,7 @@ fn parse_value(tokens: &mut Lexer<'_>, token: Option<TokenData>) -> Result<NbtTa
                 token: Token::OpenCurly,
                 ..
             },
-        ) => parse_compound_tag(tokens, &td).map(|(_, tag)| tag.into()),
+        ) => parse_compound_tag(tokens, &td).map(|(tag, _)| tag.into()),
 
         // Open square brace indicates that some kind of list is present
         #[rustfmt::skip]
@@ -282,7 +282,7 @@ fn parse_tag_list(tokens: &mut Lexer<'_>, first_element: NbtTag) -> Result<NbtLi
 fn parse_compound_tag<'a>(
     tokens: &mut Lexer<'a>,
     open_curly: &TokenData,
-) -> Result<(usize, NbtCompound), SnbtError> {
+) -> Result<(NbtCompound, usize), SnbtError> {
     let mut compound = NbtCompound::new();
     // Zero is used as a niche value so the first iteration of the loop runs correctly
     let mut comma: Option<usize> = Some(0);
@@ -296,7 +296,7 @@ fn parse_compound_tag<'a>(
             }) => {
                 match comma {
                     // First loop iteration or no comma
-                    Some(0) | None => return Ok((tokens.index, compound)),
+                    Some(0) | None => return Ok((compound, tokens.index)),
                     // Later iteration with a trailing comma
                     Some(index) => return Err(SnbtError::trailing_comma(tokens.raw, index)),
                 }
