@@ -11,37 +11,40 @@ pub static BIG_TEST_VALIDATE: Lazy<NbtCompound> = Lazy::new(|| {
         bytes.push(((n * n * 255 + n * 7) % 100) as i8);
     }
 
-    compound! {
-        "nested compound test": {
-            "egg": {
-                "name": "Eggbert",
-                "value": 0.5f32
+    #[allow(clippy::excessive_precision)]
+    {
+        compound! {
+            "nested compound test": {
+                "egg": {
+                    "name": "Eggbert",
+                    "value": 0.5f32
+                },
+                "ham": {
+                    "name": "Hampus",
+                    "value": 0.75f32
+                }
             },
-            "ham": {
-                "name": "Hampus",
-                "value": 0.75f32
-            }
-        },
-        "intTest": 2147483647i32,
-        "byteTest": 127i8,
-        "stringTest": "HELLO WORLD THIS IS A TEST STRING \u{C5}\u{C4}\u{D6}!",
-        "listTest (long)": [11i64, 12, 13, 14, 15],
-        "doubleTest": 0.49312871321823148f64,
-        "floatTest": 0.49823147058486938f32,
-        "longTest": 9223372036854775807i64,
-        "listTest (compound)": [
-            {
-                "created-on": 1264099775885i64,
-                "name": "Compound tag #0"
-            },
-            {
-                "created-on": 1264099775885i64,
-                "name": "Compound tag #1"
-            }
-        ],
-        "byteArrayTest (the first 1000 values of (n*n*255+n*7)%100, starting with n=0 (0, 62, 34, \
-            16, 8, ...))": bytes,
-        "shortTest": 32767i16
+            "intTest": 2147483647i32,
+            "byteTest": 127i8,
+            "stringTest": "HELLO WORLD THIS IS A TEST STRING \u{C5}\u{C4}\u{D6}!",
+            "listTest (long)": [11i64, 12, 13, 14, 15],
+            "doubleTest": 0.49312871321823148f64,
+            "floatTest": 0.49823147058486938f32,
+            "longTest": 9223372036854775807i64,
+            "listTest (compound)": [
+                {
+                    "created-on": 1264099775885i64,
+                    "name": "Compound tag #0"
+                },
+                {
+                    "created-on": 1264099775885i64,
+                    "name": "Compound tag #1"
+                }
+            ],
+            "byteArrayTest (the first 1000 values of (n*n*255+n*7)%100, starting with n=0 (0, 62, 34, \
+                16, 8, ...))": bytes,
+            "shortTest": 32767i16
+        }
     }
 });
 

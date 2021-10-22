@@ -178,6 +178,7 @@ fn basic_datatypes_serde() {
         string: String,
     }
 
+    #[allow(clippy::excessive_precision, clippy::approx_constant)]
     let test_struct = Foo {
         boolean: true,
         unsigned_byte: 174,
@@ -199,6 +200,7 @@ fn basic_datatypes_serde() {
     .unwrap()
     .0;
 
+    #[allow(clippy::excessive_precision, clippy::approx_constant)]
     let validation_nbt = compound! {
         "boolean": 1i8,
         "unsigned_byte": -82i8,
@@ -425,7 +427,7 @@ fn array_serde() {
     impl<'a> Serialize for Bytes<'a> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where S: serde::Serializer {
-            serializer.serialize_bytes(&self.0)
+            serializer.serialize_bytes(self.0)
         }
     }
 
@@ -631,10 +633,10 @@ fn vec_serde() {
         strings: vec!["test".to_owned(), "test test test".to_owned()],
         enumeration: vec![Enumeration::A, Enumeration::B, Enumeration::E],
         mixed_enumeration: vec![Enumeration::D(12), Enumeration::F { a: 14 }],
-        nested_arr: vec![
-            vec![vec![1, 20, 9].into()].into(),
-            vec![vec![3, 5, 10].into(), vec![99, 10, 32].into()].into(),
-        ],
+        nested_arr: vec![vec![vec![1, 20, 9].into()], vec![
+            vec![3, 5, 10].into(),
+            vec![99, 10, 32].into(),
+        ]],
         enum_of_vec: Enumeration::G(vec![vec![Bar { a: 13 }, Bar { a: 9 }], vec![Bar { a: 14 }]]),
         empty_byte_array: Vec::new().into(),
         empty_int_array: Vec::new().into(),
@@ -866,6 +868,7 @@ fn inlined_nbt() {
         .unwrap()
         .clone();
 
+    #[allow(clippy::excessive_precision, clippy::approx_constant)]
     let inlined = Inlined {
         byte: NbtTag::Byte(31),
         short: NbtTag::Short(-214),
@@ -892,6 +895,7 @@ fn inlined_nbt() {
     .unwrap()
     .0;
 
+    #[allow(clippy::excessive_precision, clippy::approx_constant)]
     let validation_nbt = compound! {
         "byte": 31i8,
         "short": -214i16,
