@@ -2,7 +2,7 @@
 name = "quartz_nbt"
 version = "0.2.4"
 authors = ["Cassy343", "maddymakesgames"]
-edition = "2018"
+edition = "2021"
 
 description = "Provides support for serializing and deserializing Minecraft NBT data in binary and string form."
 repository = "https://github.com/Rusty-Quartz/quartz_nbt"
