@@ -1013,12 +1013,13 @@ impl SnbtError {
             .nth(before.saturating_sub(1))
             .map(|(index, _)| index)
             .unwrap_or(0);
-        let end = index
+        let end = (index
             + input[index ..]
                 .char_indices()
                 .nth(char_width.min(20) + after)
                 .map(|(index, _)| index)
-                .unwrap_or(input.len());
+                .unwrap_or(input.len()))
+        .min(input.len());
         input[start .. end].to_owned()
     }
 }
