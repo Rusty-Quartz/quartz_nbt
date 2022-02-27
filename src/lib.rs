@@ -83,7 +83,7 @@ assert!(compound.get::<_, i32>("bar").is_err()); // Type mismatch
 
 # Collection Types and Iteration
 
-The [`NbtCompound`] and [`NbtList`] types are wrappers around [`HashMap`](std::collections::HashMap)s
+The [`NbtCompound`] and [`NbtList`] types are wrappers around [`Map`](crate::Map)s
 and [`Vec`](Vec)s respectively. Because [`NbtTag`]s obscure the type of data actually stored,
 these wrappers provide utilities for unpacking tags into concrete types. If greater functionality
 is required, then the internal collection managed by these wrappers can be accessed through

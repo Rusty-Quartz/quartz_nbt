@@ -928,3 +928,88 @@ fn inlined_nbt() {
         .0;
     assert_eq!(deserialized_struct, inlined);
 }
+
+#[cfg(feature = "preserve_order")]
+#[test]
+fn preserve_order() {
+    #[derive(Serialize)]
+    struct TestStruct {
+        byte: i8,
+        short: i16,
+        int: i32,
+        long: i64,
+        float: f32,
+        double: f64,
+        string: &'static str,
+        list: Vec<&'static str>,
+        compound_list: Vec<NbtCompound>,
+        byte_array: Array<Vec<i8>>,
+        int_array: Array<Vec<i32>>,
+        long_array: Array<Vec<i64>>,
+        compound: TestStructInner
+    }
+
+    #[derive(Serialize)]
+    struct TestStructInner {
+        test: i8
+    }
+
+    let list = NbtList::from(vec!["a", "b", "c"]);
+    let compound_list = NbtList::from(vec![NbtCompound::new(), NbtCompound::new()]);
+    let nested_compound = compound! { "test": 12i8 };
+
+    let test_struct = TestStruct {
+        byte: 12,
+        short: 32,
+        int: 512,
+        long: 1024,
+        float: 12.99f32,
+        double: 1212.0101,
+        string: "test",
+        list: vec!["a", "b", "c"],
+        compound_list: vec![NbtCompound::new(), NbtCompound::new()],
+        byte_array: Array::from(vec![1, 2, 3, 4]),
+        int_array: Array::from(vec![1, 3, 5, 7]),
+        long_array: Array::from(vec![1, 9, 81]),
+        compound: TestStructInner {
+            test: 12
+        }
+    };
+
+    let elts = vec![
+        ("byte", NbtTag::from(12i8)),
+        ("short", NbtTag::from(32i16)),
+        ("int", NbtTag::from(512i32)),
+        ("long", NbtTag::from(1024i64)),
+        ("float", NbtTag::from(12.99f32)),
+        ("double", NbtTag::from(1212.0101f64)),
+        ("string", NbtTag::from("test")),
+        ("list", NbtTag::from(list)),
+        ("compound_list", NbtTag::from(compound_list)),
+        ("byte_array", NbtTag::ByteArray(vec![1, 2, 3, 4])),
+        ("int_array", NbtTag::IntArray(vec![1, 3, 5, 7])),
+        ("long_array", NbtTag::LongArray(vec![1, 9, 81])),
+        ("compound", NbtTag::from(nested_compound))
+    ];
+
+    let serialized_struct = serialize(&test_struct, None, Flavor::Uncompressed).unwrap();
+    let struct_nbt = io::read_nbt(
+        &mut Cursor::new(serialized_struct.clone()),
+        Flavor::Uncompressed,
+    )
+    .unwrap()
+    .0;
+    let serde_deserialized_struct_nbt: NbtCompound = deserialize_from_buffer(&serialized_struct).unwrap().0;
+
+    for ((k1, v1), (k2, v2)) in struct_nbt.inner().iter().zip(elts.iter()) {
+        if k1 != k2 || v1 != v2 {
+            panic!("io::read_nbt order preservation failed");
+        }
+    }
+
+    for ((k1, v1), (k2, v2)) in serde_deserialized_struct_nbt.inner().iter().zip(elts.iter()) {
+        if k1 != k2 || v1 != v2 {
+            panic!("deserialize_from_buffer order preservation failed");
+        }
+    }
+}
