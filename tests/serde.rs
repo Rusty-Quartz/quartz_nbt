@@ -854,10 +854,12 @@ fn inlined_nbt() {
         byte_array: NbtTag,
         string: NbtTag,
         tag_list: NbtTag,
+        tag_int_list: NbtTag,
         tag_compound: NbtTag,
         int_array: NbtTag,
         long_array: NbtTag,
         list: NbtList,
+        int_list: NbtList,
         compound: NbtCompound,
         normal_field: i32,
     }
@@ -867,6 +869,7 @@ fn inlined_nbt() {
         .get::<_, &NbtList>("chaotic_array")
         .unwrap()
         .clone();
+    let test_int_list = NbtList::from(vec![1i32, 2, 3]);
 
     #[allow(clippy::excessive_precision, clippy::approx_constant)]
     let inlined = Inlined {
@@ -879,10 +882,12 @@ fn inlined_nbt() {
         byte_array: NbtTag::ByteArray(vec![-1, 2, -3, 4]),
         string: NbtTag::String("foobar".to_owned()),
         tag_list: NbtTag::List(test_list.clone()),
+        tag_int_list: NbtTag::List(test_int_list.clone()),
         tag_compound: NbtTag::Compound(test_compound.clone()),
         int_array: NbtTag::IntArray(vec![-1_000_000, 2_000_000]),
         long_array: NbtTag::LongArray(Vec::new()),
         list: test_list.clone(),
+        int_list: test_int_list.clone(),
         compound: test_compound.clone(),
         normal_field: 42,
     };
@@ -906,10 +911,12 @@ fn inlined_nbt() {
         "byte_array": [B; -1, 2, -3, 4],
         "string": "foobar",
         "tag_list": test_list.clone(),
+        "tag_int_list": test_int_list.clone(),
         "tag_compound": test_compound.clone(),
         "int_array": [I; -1_000_000, 2_000_000],
         "long_array": [L;],
         "list": test_list,
+        "int_list": test_int_list,
         "compound": test_compound,
         "normal_field": 42i32
     };

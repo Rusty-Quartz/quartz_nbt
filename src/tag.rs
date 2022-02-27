@@ -1497,6 +1497,18 @@ mod serde_impl {
                 Indeterminate,
             }
 
+            impl ArbitraryList {
+                fn into_tag(self) -> NbtTag {
+                    match self {
+                        ArbitraryList::Byte(list) => NbtTag::ByteArray(list),
+                        ArbitraryList::Int(list) => NbtTag::IntArray(list),
+                        ArbitraryList::Long(list) => NbtTag::LongArray(list),
+                        ArbitraryList::Tag(list) => NbtTag::List(NbtList(list)),
+                        ArbitraryList::Indeterminate => NbtTag::List(NbtList::new()),
+                    }
+                }
+            }
+
             let mut list = ArbitraryList::Indeterminate;
 
             fn init_vec<T>(element: T, size: Option<usize>) -> Vec<T> {
@@ -1535,22 +1547,24 @@ mod serde_impl {
                 }
             }
 
-            Ok(match list {
-                ArbitraryList::Byte(list) => NbtTag::ByteArray(list),
-                ArbitraryList::Int(list) => NbtTag::IntArray(list),
-                ArbitraryList::Long(list) => NbtTag::LongArray(list),
-                ArbitraryList::Tag(list) => NbtTag::List(NbtList(list)),
-                // Try to acquire a type hint
-                ArbitraryList::Indeterminate => match seq.next_element::<TypeHint>() {
-                    Ok(Some(TypeHint { hint: Some(tag_id) })) => match tag_id {
-                        0x7 => NbtTag::ByteArray(Vec::new()),
-                        0xB => NbtTag::IntArray(Vec::new()),
-                        0xC => NbtTag::LongArray(Vec::new()),
-                        _ => NbtTag::List(NbtList::new()),
+            match seq.next_element::<TypeHint>() {
+                Ok(Some(TypeHint { hint: Some(tag_id) })) => match (list, tag_id) {
+                    (ArbitraryList::Byte(list), 0x9) => {
+                        Ok(NbtTag::List(NbtList(list.into_iter().map(Into::into).collect())))
                     },
-                    _ => NbtTag::List(NbtList::new()),
+                    (ArbitraryList::Int(list), 0x9) => {
+                        Ok(NbtTag::List(NbtList(list.into_iter().map(Into::into).collect())))
+                    },
+                    (ArbitraryList::Long(list), 0x9) => {
+                        Ok(NbtTag::List(NbtList(list.into_iter().map(Into::into).collect())))
+                    },
+                    (ArbitraryList::Indeterminate, 0x7) => Ok(NbtTag::ByteArray(Vec::new())),
+                    (ArbitraryList::Indeterminate, 0xB) => Ok(NbtTag::IntArray(Vec::new())),
+                    (ArbitraryList::Indeterminate, 0xC) => Ok(NbtTag::LongArray(Vec::new())),
+                    (list, _) => Ok(list.into_tag())
                 },
-            })
+                _ => Ok(list.into_tag())
+            }
         }
     }
 
