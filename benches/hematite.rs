@@ -8,15 +8,16 @@ extern crate quartz_nbt;
 extern crate serde;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
-use nbt::{de::from_gzip_reader, ser::to_writer};
+use flate2::read::GzDecoder;
+use nbt::{de::from_gzip_reader, ser::to_writer, from_reader};
 use quartz_nbt::{
     io::{read_nbt, write_nbt, Flavor},
-    serde::{deserialize_from, serialize_into_unchecked},
+    serde::{deserialize_from, deserialize_from_buffer, serialize_into_unchecked},
 };
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fs::File,
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom, Cursor},
     time::Duration,
 };
 
@@ -25,30 +26,51 @@ mod data {
     include!("data.rs.in");
 }
 
+fn inflate(buf: &[u8]) -> Vec<u8> {
+    let mut decoder = GzDecoder::new(buf);
+    let mut dest = Vec::new();
+    decoder.read_to_end(&mut dest).unwrap();
+    dest
+}
+
 fn hematite_bench<T>(filename: &str, c: &mut Criterion)
 where T: DeserializeOwned + Serialize {
     let mut file = File::open(filename).unwrap();
     let mut contents = Vec::new();
     file.read_to_end(&mut contents).unwrap();
-    let mut src = std::io::Cursor::new(&contents[..]);
+    let mut src = Cursor::new(&contents[..]);
     file.seek(SeekFrom::Start(0)).unwrap();
     let nbt_struct: T = from_gzip_reader(&mut file).unwrap();
     file.seek(SeekFrom::Start(0)).unwrap();
     let nbt_blob = nbt::Blob::from_gzip_reader(&mut file).unwrap();
+    let uncompressed = inflate(&contents);
+    let mut uncompressed_src = Cursor::new(&uncompressed[..]);
 
     let mut group = c.benchmark_group(filename);
     group.sampling_mode(SamplingMode::Flat);
     group.throughput(Throughput::Bytes(contents.len() as u64));
-    group.bench_function("Hematite: Deserialize As Struct", |b| {
+    group.bench_function("Hematite: Deserialize As Struct (Compressed)", |b| {
         b.iter(|| {
             src.seek(SeekFrom::Start(0)).unwrap();
             let _: T = from_gzip_reader(&mut src).unwrap();
         })
     });
-    group.bench_function("Hematite: Deserialize As Blob", |b| {
+    group.bench_function("Hematite: Deserialize As Struct (Uncompressed)", |b| {
+        b.iter(|| {
+            uncompressed_src.seek(SeekFrom::Start(0)).unwrap();
+            let _: T = from_reader(&mut uncompressed_src).unwrap();
+        })
+    });
+    group.bench_function("Hematite: Deserialize As Blob (Compressed)", |b| {
         b.iter(|| {
             src.seek(SeekFrom::Start(0)).unwrap();
             nbt::Blob::from_gzip_reader(&mut src).unwrap();
+        })
+    });
+    group.bench_function("Hematite: Deserialize As Blob (Uncompressed)", |b| {
+        b.iter(|| {
+            uncompressed_src.seek(SeekFrom::Start(0)).unwrap();
+            nbt::Blob::from_reader(&mut uncompressed_src).unwrap();
         })
     });
     group.bench_function("Hematite: Serialize As Struct", |b| {
@@ -74,11 +96,13 @@ where T: DeserializeOwned + Serialize {
     let nbt_struct: T = deserialize_from(&mut file, Flavor::GzCompressed).unwrap().0;
     file.seek(SeekFrom::Start(0)).unwrap();
     let nbt_compound = read_nbt(&mut file, Flavor::GzCompressed).unwrap().0;
+    let uncompressed = inflate(&contents);
+    let mut uncompressed_src = Cursor::new(&uncompressed[..]);
 
     let mut group = c.benchmark_group(filename);
     group.sampling_mode(SamplingMode::Flat);
     group.throughput(Throughput::Bytes(contents.len() as u64));
-    group.bench_function("Quartz: Deserialize As Struct", |b| {
+    group.bench_function("Quartz: Deserialize As Struct (Compressed)", |b| {
         b.iter(|| {
             src.seek(SeekFrom::Start(0)).unwrap();
             black_box(
@@ -88,10 +112,25 @@ where T: DeserializeOwned + Serialize {
             );
         })
     });
-    group.bench_function("Quartz: Deserialize As Compound", |b| {
+    group.bench_function("Quartz: Deserialize As Struct (Uncompressed)", |b| {
+        b.iter(|| {
+            black_box(
+                deserialize_from_buffer::<T>(&uncompressed)
+                    .unwrap()
+                    .0,
+            );
+        })
+    });
+    group.bench_function("Quartz: Deserialize As Compound (Compressed)", |b| {
         b.iter(|| {
             src.seek(SeekFrom::Start(0)).unwrap();
             black_box(read_nbt(&mut src, Flavor::GzCompressed).unwrap().0);
+        })
+    });
+    group.bench_function("Quartz: Deserialize As Compound (Uncompressed)", |b| {
+        b.iter(|| {
+            uncompressed_src.seek(SeekFrom::Start(0)).unwrap();
+            black_box(read_nbt(&mut uncompressed_src, Flavor::Uncompressed).unwrap().0);
         })
     });
     group.bench_function("Quartz: Serialize As Struct", |b| {
