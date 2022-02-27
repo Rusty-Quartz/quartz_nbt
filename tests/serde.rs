@@ -946,12 +946,12 @@ fn preserve_order() {
         byte_array: Array<Vec<i8>>,
         int_array: Array<Vec<i32>>,
         long_array: Array<Vec<i64>>,
-        compound: TestStructInner
+        compound: TestStructInner,
     }
 
     #[derive(Serialize)]
     struct TestStructInner {
-        test: i8
+        test: i8,
     }
 
     let list = NbtList::from(vec!["a", "b", "c"]);
@@ -971,9 +971,7 @@ fn preserve_order() {
         byte_array: Array::from(vec![1, 2, 3, 4]),
         int_array: Array::from(vec![1, 3, 5, 7]),
         long_array: Array::from(vec![1, 9, 81]),
-        compound: TestStructInner {
-            test: 12
-        }
+        compound: TestStructInner { test: 12 },
     };
 
     let elts = vec![
@@ -989,7 +987,7 @@ fn preserve_order() {
         ("byte_array", NbtTag::ByteArray(vec![1, 2, 3, 4])),
         ("int_array", NbtTag::IntArray(vec![1, 3, 5, 7])),
         ("long_array", NbtTag::LongArray(vec![1, 9, 81])),
-        ("compound", NbtTag::from(nested_compound))
+        ("compound", NbtTag::from(nested_compound)),
     ];
 
     let serialized_struct = serialize(&test_struct, None, Flavor::Uncompressed).unwrap();
@@ -999,7 +997,8 @@ fn preserve_order() {
     )
     .unwrap()
     .0;
-    let serde_deserialized_struct_nbt: NbtCompound = deserialize_from_buffer(&serialized_struct).unwrap().0;
+    let serde_deserialized_struct_nbt: NbtCompound =
+        deserialize_from_buffer(&serialized_struct).unwrap().0;
 
     for ((k1, v1), (k2, v2)) in struct_nbt.inner().iter().zip(elts.iter()) {
         if k1 != k2 || v1 != v2 {
@@ -1007,7 +1006,11 @@ fn preserve_order() {
         }
     }
 
-    for ((k1, v1), (k2, v2)) in serde_deserialized_struct_nbt.inner().iter().zip(elts.iter()) {
+    for ((k1, v1), (k2, v2)) in serde_deserialized_struct_nbt
+        .inner()
+        .iter()
+        .zip(elts.iter())
+    {
         if k1 != k2 || v1 != v2 {
             panic!("deserialize_from_buffer order preservation failed");
         }

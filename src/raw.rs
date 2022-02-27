@@ -251,7 +251,7 @@ pub fn read_i64_array<R: Read>(reader: &mut R, len: usize) -> Result<Vec<i64>> {
 #[inline]
 unsafe fn convert_be_int_array_in_place<I, const SIZE: usize>(
     mut bytes: Vec<u8>,
-    convert: fn([u8; SIZE]) -> I
+    convert: fn([u8; SIZE]) -> I,
 ) -> Vec<I> {
     let mut buf: [u8; SIZE];
 

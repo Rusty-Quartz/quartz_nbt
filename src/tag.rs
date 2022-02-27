@@ -10,7 +10,7 @@ use std::{
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
     iter::FromIterator,
-    ops::{Index, IndexMut, Deref, DerefMut},
+    ops::{Deref, DerefMut, Index, IndexMut},
     str::FromStr,
 };
 
@@ -1576,21 +1576,21 @@ mod serde_impl {
 
             match seq.next_element::<TypeHint>() {
                 Ok(Some(TypeHint { hint: Some(tag_id) })) => match (list, tag_id) {
-                    (ArbitraryList::Byte(list), 0x9) => {
-                        Ok(NbtTag::List(NbtList(list.into_iter().map(Into::into).collect())))
-                    },
-                    (ArbitraryList::Int(list), 0x9) => {
-                        Ok(NbtTag::List(NbtList(list.into_iter().map(Into::into).collect())))
-                    },
-                    (ArbitraryList::Long(list), 0x9) => {
-                        Ok(NbtTag::List(NbtList(list.into_iter().map(Into::into).collect())))
-                    },
+                    (ArbitraryList::Byte(list), 0x9) => Ok(NbtTag::List(NbtList(
+                        list.into_iter().map(Into::into).collect(),
+                    ))),
+                    (ArbitraryList::Int(list), 0x9) => Ok(NbtTag::List(NbtList(
+                        list.into_iter().map(Into::into).collect(),
+                    ))),
+                    (ArbitraryList::Long(list), 0x9) => Ok(NbtTag::List(NbtList(
+                        list.into_iter().map(Into::into).collect(),
+                    ))),
                     (ArbitraryList::Indeterminate, 0x7) => Ok(NbtTag::ByteArray(Vec::new())),
                     (ArbitraryList::Indeterminate, 0xB) => Ok(NbtTag::IntArray(Vec::new())),
                     (ArbitraryList::Indeterminate, 0xC) => Ok(NbtTag::LongArray(Vec::new())),
-                    (list, _) => Ok(list.into_tag())
+                    (list, _) => Ok(list.into_tag()),
                 },
-                _ => Ok(list.into_tag())
+                _ => Ok(list.into_tag()),
             }
         }
     }

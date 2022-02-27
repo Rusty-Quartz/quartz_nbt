@@ -79,11 +79,15 @@ fn preserve_order() {
         ("byte_array", NbtTag::ByteArray(vec![1, 2, 3, 4])),
         ("int_array", NbtTag::IntArray(vec![1, 3, 5, 7])),
         ("long_array", NbtTag::LongArray(vec![1, 9, 81])),
-        ("compound", NbtTag::from(nested_compound))
+        ("compound", NbtTag::from(nested_compound)),
     ];
 
     let mut nbt = NbtCompound::new();
-    nbt.extend(elts.clone().into_iter().map(|(key, value)| (key.to_owned(), value)));
+    nbt.extend(
+        elts.clone()
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value)),
+    );
 
     let mut bytes = Vec::new();
     write_nbt(&mut bytes, None, &nbt, Flavor::Uncompressed).unwrap();

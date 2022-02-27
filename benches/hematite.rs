@@ -9,7 +9,7 @@ extern crate serde;
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, Throughput};
 use flate2::read::GzDecoder;
-use nbt::{de::from_gzip_reader, ser::to_writer, from_reader};
+use nbt::{de::from_gzip_reader, from_reader, ser::to_writer};
 use quartz_nbt::{
     io::{read_nbt, write_nbt, Flavor},
     serde::{deserialize_from, deserialize_from_buffer, serialize_into_unchecked},
@@ -17,7 +17,7 @@ use quartz_nbt::{
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     fs::File,
-    io::{self, Read, Seek, SeekFrom, Cursor},
+    io::{self, Cursor, Read, Seek, SeekFrom},
     time::Duration,
 };
 
@@ -114,11 +114,7 @@ where T: DeserializeOwned + Serialize {
     });
     group.bench_function("Quartz: Deserialize As Struct (Uncompressed)", |b| {
         b.iter(|| {
-            black_box(
-                deserialize_from_buffer::<T>(&uncompressed)
-                    .unwrap()
-                    .0,
-            );
+            black_box(deserialize_from_buffer::<T>(&uncompressed).unwrap().0);
         })
     });
     group.bench_function("Quartz: Deserialize As Compound (Compressed)", |b| {
@@ -130,7 +126,11 @@ where T: DeserializeOwned + Serialize {
     group.bench_function("Quartz: Deserialize As Compound (Uncompressed)", |b| {
         b.iter(|| {
             uncompressed_src.seek(SeekFrom::Start(0)).unwrap();
-            black_box(read_nbt(&mut uncompressed_src, Flavor::Uncompressed).unwrap().0);
+            black_box(
+                read_nbt(&mut uncompressed_src, Flavor::Uncompressed)
+                    .unwrap()
+                    .0,
+            );
         })
     });
     group.bench_function("Quartz: Serialize As Struct", |b| {
