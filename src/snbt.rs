@@ -727,7 +727,7 @@ impl<'a> Lexer<'a> {
         let last = token_string.chars().rev().next().unwrap();
 
         // Identify if the token is not a number (a string)
-        if !(first == '-' || (first.is_ascii() && first.is_numeric())) {
+        if quoted || !(first == '-' || (first.is_ascii() && first.is_numeric())) {
             return Ok(TokenData::new(
                 Token::String {
                     value: token_string.into_owned(),
