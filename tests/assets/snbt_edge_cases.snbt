@@ -29,5 +29,8 @@
     'quoted "key\"': "quoted 'value'",
     "redundant": "quotes",
     'more_redundant': 'quotes',
-    "escape sequences": "\'a\\bc\rd\nef\t\u00A7_\u0F63"
+    "escape sequences": "\'a\\bc\rd\nef\t\u00A7_\u0F63",
+    "0": " 0 ",
+    "1.2.3": "4.5.6",
+    " foo ": " bar "
 }
