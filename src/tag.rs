@@ -187,6 +187,18 @@ impl NbtTag {
     /// non-standard characters.
     #[inline]
     pub fn should_quote(string: &str) -> bool {
+        if let Some(first) = string.chars().next() {
+            if first.is_whitespace() || first.is_ascii_digit() {
+                return true;
+            }
+        }
+
+        if let Some(last) = string.chars().next_back() {
+            if last.is_whitespace() {
+                return true;
+            }
+        }
+
         for ch in string.chars() {
             if ch == ':'
                 || ch == ','
