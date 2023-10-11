@@ -1,6 +1,7 @@
 mod assets;
 use assets::*;
 use quartz_nbt::{snbt, NbtCompound};
+use quartz_nbt_macros::compound;
 
 #[test]
 fn edge_cases() {
@@ -48,4 +49,23 @@ fn formatting() {
         &snbt::parse(&SNBT_EDGE_CASES_VALIDATE.to_pretty_snbt()).unwrap(),
         &*SNBT_EDGE_CASES_VALIDATE
     );
+}
+
+#[test]
+fn number_like_strings() {
+    fn assert_round_trip_same(tag: NbtCompound) {
+        let repr = tag.to_string();
+
+        // For manual inspection
+        println!("{repr}");
+
+        assert_eq!(quartz_nbt::snbt::parse(&repr).unwrap(), tag);
+    }
+
+    assert_round_trip_same(compound! { "str": "1" });
+    assert_round_trip_same(compound! { "str": "-1" });
+    assert_round_trip_same(compound! { "str": "0" });
+    assert_round_trip_same(compound! { "str": "-0" });
+    assert_round_trip_same(compound! { "str": "0.5" });
+    assert_round_trip_same(compound! { "str": "-0.5" });
 }

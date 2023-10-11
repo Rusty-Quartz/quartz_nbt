@@ -188,7 +188,7 @@ impl NbtTag {
     #[inline]
     pub fn should_quote(string: &str) -> bool {
         if let Some(first) = string.chars().next() {
-            if first.is_whitespace() || first.is_ascii_digit() {
+            if first.is_whitespace() || first.is_ascii_digit() || first == '-' {
                 return true;
             }
         }
