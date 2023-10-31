@@ -641,6 +641,12 @@ impl NbtList {
         NbtList(Vec::new())
     }
 
+    /// Returns a reference to the internal vector of this NBT list.
+    #[inline]
+    pub fn inner(&self) -> &Vec<NbtTag> {
+        &self.0
+    }
+
     /// Returns a mutable reference to the internal vector of this NBT list.
     #[inline]
     pub fn inner_mut(&mut self) -> &mut Vec<NbtTag> {
