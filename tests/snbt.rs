@@ -69,3 +69,14 @@ fn number_like_strings() {
     assert_round_trip_same(compound! { "str": "0.5" });
     assert_round_trip_same(compound! { "str": "-0.5" });
 }
+
+#[test]
+fn empty_string_value() {
+    let tag = compound! { "key": "" };
+    let repr = tag.to_string();
+
+    // For manual inspection
+    println!("{repr}");
+
+    assert_eq!(quartz_nbt::snbt::parse(&repr).unwrap(), tag);
+}
