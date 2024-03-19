@@ -13,7 +13,6 @@ use quartz_nbt::{
 use serde::{de::Visitor, ser::SerializeStruct, Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    convert::TryInto,
     io::{Cursor, Seek, SeekFrom},
 };
 

@@ -7,7 +7,6 @@ use serde::{
 };
 use std::{
     borrow::{Borrow, BorrowMut},
-    convert::{AsMut, AsRef},
     fmt,
     marker::PhantomData,
 };

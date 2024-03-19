@@ -6,10 +6,8 @@ use crate::{
 };
 use std::{
     borrow::{Borrow, BorrowMut, Cow},
-    convert::{AsMut, AsRef, TryFrom},
     fmt::{self, Debug, Display, Formatter},
     hash::Hash,
-    iter::FromIterator,
     ops::{Deref, DerefMut, Index, IndexMut},
     str::FromStr,
 };
@@ -1393,9 +1391,6 @@ impl Extend<(String, NbtTag)> for NbtCompound {
         self.0.extend(iter);
     }
 }
-
-#[cfg(feature = "serde")]
-pub use serde_impl::*;
 
 #[cfg(feature = "serde")]
 mod serde_impl {

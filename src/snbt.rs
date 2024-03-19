@@ -2,7 +2,6 @@ use crate::tag::{NbtCompound, NbtList, NbtTag};
 use std::{
     borrow::Cow,
     char,
-    convert::AsRef,
     error::Error,
     fmt::{self, Debug, Display, Formatter},
     iter::Peekable,

@@ -16,7 +16,6 @@ use serde::{
 };
 use std::{
     borrow::Cow,
-    convert::TryFrom,
     error::Error,
     fmt::{self, Display, Formatter},
     io::{self, Cursor, ErrorKind, Read},
